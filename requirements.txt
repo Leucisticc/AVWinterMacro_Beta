@@ -1,0 +1,10 @@
+numpy
+opencv-python
+pillow
+PyAutoGUI
+pytesseract
+pynput
+requests
+pyobjc
+pywinctl
+webhook

@@ -1,0 +1,257 @@
+{
+    "STOP_START_HOTKEY": "i",
+    "START_BUTTON_ID": false,
+    "USE_UI_NAV": false,
+    "WAVE_RESTART_150": false,
+    "USE_NIMBUS": true,
+    "AUTO_START": true,
+    "CTM_P1_P2": false,
+    "CTM_AREA_1": [
+        [
+            681,
+            309
+        ],
+        [
+            748,
+            159
+        ],
+        [
+            273,
+            460
+        ]
+    ],
+    "CTM_AREA_1_UNITS": [
+        [
+            577,
+            361
+        ],
+        [
+            742,
+            219
+        ],
+        [
+            887,
+            305
+        ]
+    ],
+    "CTM_AREA_2": [
+        [
+            676,
+            313
+        ],
+        [
+            759,
+            195
+        ],
+        [
+            734,
+            404
+        ]
+    ],
+    "CTM_AREA_2_UNITS": [
+        [
+            534,
+            706
+        ],
+        [
+            535,
+            546
+        ]
+    ],
+    "CTM_NAMI_CARD": [
+        382,
+        268
+    ],
+    "AREA_3_DELAYS": [
+        3,
+        1.65,
+        1.6,
+        0.5
+    ],
+    "AREA_4_DELAYS": [
+        3,
+        1.7
+    ],
+    "AREA_5_DELAYS": [
+        3,
+        1.85
+    ],
+    "TAK_W_DELAY": 0.8,
+    "BUY_MAIN_LANE_DELAYS": [
+        1,
+        0.6
+    ],
+    "BUY_FINAL_LANE_DELAYS": [
+        0.45,
+        3,
+        4.8
+    ],
+    "REPLAY_BUTTON_POS": [
+        771,
+        703
+    ],
+    "Unit_Positions": [
+        {
+            "Ainz": [
+                [
+                    745,
+                    470
+                ]
+            ],
+            "Beni": [
+                [
+                    873,
+                    522
+                ],
+                [
+                    843,
+                    523
+                ],
+                [
+                    807,
+                    522
+                ]
+            ],
+            "Rukia": [
+                [
+                    784,
+                    557
+                ],
+                [
+                    827,
+                    556
+                ],
+                [
+                    867,
+                    556
+                ]
+            ],
+            "Mage": [
+                [
+                    740,
+                    557
+                ],
+                [
+                    679,
+                    583
+                ],
+                [
+                    681,
+                    498
+                ]
+            ],
+            "Escanor": [
+                [
+                    587,
+                    519
+                ]
+            ],
+            "Hero": [
+                [
+                    916,
+                    501
+                ],
+                [
+                    927,
+                    528
+                ],
+                [
+                    916,
+                    554
+                ]
+            ],
+            "Kuzan": [
+                [
+                    938,
+                    477
+                ],
+                [
+                    951,
+                    570
+                ],
+                [
+                    657,
+                    521
+                ],
+                [
+                    654,
+                    559
+                ]
+            ],
+            "Kag": [
+                [
+                    746,
+                    329
+                ]
+            ],
+            "mirko": [
+                [
+                    956,
+                    543
+                ],
+                [
+                    692,
+                    524
+                ],
+                [
+                    953,
+                    512
+                ]
+            ],
+            "speedwagon": [
+                [
+                    851,
+                    531
+                ],
+                [
+                    892,
+                    534
+                ],
+                [
+                    932,
+                    536
+                ]
+            ],
+            "tak": [
+                853,
+                604
+            ],
+            "Caloric_Unit": [
+                876,
+                465
+            ]
+        }
+    ],
+    "Unit_Placements_Left": [
+        {
+            "Ainz": 1,
+            "Beni": 3,
+            "Rukia": 3,
+            "Mage": 3,
+            "Escanor": 1,
+            "Hero": 3,
+            "Kuzan": 4,
+            "Kag": 1
+        }
+    ],
+    "Units_Placeable": [
+        "Ainz",
+        "Beni",
+        "Rukia",
+        "Mage",
+        "Escanor",
+        "Hero",
+        "Kuzan",
+        "Kag"
+    ],
+    "USE_WD": true,
+    "USE_DIO": false,
+    "USE_AINZ_UNIT": "",
+    "MONARCH_AINZ_PLACEMENT": false,
+    "MAX_UPG_AINZ_PLACEMENT": false,
+    "AINZ_PLACEMENT_MOVE_PNG": "Winter/YOUR_MOVE,png",
+    "num_runs": 6,
+    "losses": 6,
+    "wins": 0,
+    "runtime": "0:00:00"
+}
