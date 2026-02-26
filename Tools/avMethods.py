@@ -30,7 +30,7 @@ WAVE_MIN = 0
 WAVE_MAX = 170
 
 # Roblox-window-relative bbox: (left, top, right, bottom)
-WAVE_REGION_REL_BBOX = (326, 48, 373, 79)
+WAVE_REGION_REL_BBOX = (326, 48, 388, 79)
 WAVE_TEMPLATE_SCALES = (1.0, 0.5, 2.0, 0.75, 1.25, 1.5)
 WAVE_MATCH_THRESHOLD = 0.72
 
