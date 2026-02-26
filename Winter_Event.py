@@ -65,6 +65,18 @@ def load_json_data():
 def save_json_data(data):
     with open(WE_Json, 'w') as f:
         json.dump(data, f, indent=4)
+
+def reset_runtime_stats():
+    """
+    Reset run counters at script startup so stats are session-only.
+    """
+    data = load_json_data() or {}
+    data["num_runs"] = 0
+    data["wins"] = 0
+    data["losses"] = 0
+    data["runtime"] = "0:00:00"
+    save_json_data(data)
+
 if os.path.exists(Settings_Path):
     if os.path.exists(WE_Json):
         data = load_json_data()
@@ -88,6 +100,9 @@ Settings.Units_Placeable.append("Doom")
 start = datetime.now()
 if not USE_KAGUYA:
     Settings.Units_Placeable.remove("Kag")
+
+# Session-only stats: reset counters every time this script starts.
+reset_runtime_stats()
 
 def kill():
     os._exit(0)
