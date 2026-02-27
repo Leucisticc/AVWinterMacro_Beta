@@ -25,7 +25,7 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.499b beta'
+VERSION_N = '1.5 beta'
 print(f"Version: {VERSION_N}")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
@@ -47,10 +47,12 @@ AINZ_SPELLS = False #Keep FALSE!
 SLOT_ONE = (499, 150, 122, 110)
 REG_SPEED = (495, 789, 570, 866)
 REG_TAK = (495, 789, 570, 866)
+HOTBAR_REGION = (492, 771, 544, 118)
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 keyboard_controller = Controller()
+g_toggle = False
 
 # Info_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Info.json")
 
@@ -107,12 +109,17 @@ reset_runtime_stats()
 def kill():
     os._exit(0)
 
+def toggle_run_state():
+    global g_toggle
+    g_toggle = not g_toggle
+    print(f"Run toggled: {'ON' if g_toggle else 'OFF'}")
+
 
 def on_press(key):
     try:
         if hasattr(key, "char") and key.char:
             if key.char.lower() == Settings.STOP_START_HOTKEY.lower():
-                g_toggle()
+                toggle_run_state()
             elif key.char.lower() == "k":
                 kill()
     except:
@@ -275,11 +282,11 @@ def wait_start(delay: int | None = None):
     while i < 90:
         i += 1
         try:
-            seen = pixel_color_seen(816, 231, sample_half=2)  # 5x5 median
+            # seen = pixel_color_seen(816, 231, sample_half=2)  # 5x5 median
             # print(f"Looking for start screen: Seen = {seen}")
             print(f"Looking for start screen.")
 
-            if pixel_matches_seen(816, 231, target, tol=35, sample_half=2) or bt.does_exist("VoteStart.png", confidence=0.7, grayscale=False):
+            if bt.does_exist("VoteStart.png", confidence=0.7, grayscale=False, region=(767, 189, 127,83)) or pixel_matches_seen(816, 231, target, tol=35, sample_half=2): 
                 print("✅ Start screen detected")
                 return True
 
@@ -405,11 +412,11 @@ def directions(area: str, unit: str | None=None): # This is for all the pathing
                 while not at_location:
                     tap('e')
                     time.sleep(e_delay)
-                    if bt.does_exist("Winter/LootBox.png",confidence=0.7,grayscale=True):
+                    if bt.does_exist("Winter/LootBox.png",confidence=0.7,grayscale=True,region=(536, 397, 433, 383)):
                         at_location = True
-                    if  bt.does_exist("Winter/Full_Bar.png",confidence=0.7,grayscale=True):
+                    if  bt.does_exist("Winter/Full_Bar.png",confidence=0.7,grayscale=True,region=(536, 397, 433, 383)):
                         at_location = True
-                    if  bt.does_exist("Winter/NO_YEN.png",confidence=0.7,grayscale=True):
+                    if  bt.does_exist("Winter/NO_YEN.png",confidence=0.7,grayscale=True,region=(536, 397, 433, 383)):
                         at_location = True
                     if timeout < 0:
                         quick_rts()
@@ -694,7 +701,7 @@ def upgrader(upgrade: str):
 def secure_select(pos: tuple[int, int]):
     click(pos[0], pos[1], delay =0.1)
     time.sleep(0.5)
-    attempts = 3
+    attempts = 2
 
     # Wait until the “selected” UI pixel is white
     while not pixel_matches_seen(607, 381, (255, 255, 255), tol=25, sample_half=2) and attempts<=0:
@@ -756,18 +763,38 @@ def _retina_to_screen_coords(x: int, y: int) -> tuple[int, int]:
     return int(x * scale_x), int(y * scale_y)
 
 
+def _screen_region_to_screenshot_region(region):
+    """
+    Convert screen-space region (x, y, w, h) into screenshot pixel space.
+    """
+    if region is None:
+        return None
+    x, y, w, h = region
+    img = _safe_screenshot()
+    if img is None:
+        return region
+    sw, sh = pyautogui.size()
+    iw, ih = img.size
+    if sw <= 0 or sh <= 0:
+        return region
+    sx = iw / sw
+    sy = ih / sh
+    return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
+
+
 def find_image_center(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None):
     """
     Returns (cx, cy, box) where box=(left, top, width, height), or (None, None, None) if not found.
     region is (left, top, width, height)
     """
     resolved_img_path = _resolve_image_path(img_path)
+    search_region = _screen_region_to_screenshot_region(region)
     try:
         box = pyautogui.locateOnScreen(
             resolved_img_path,
             confidence=confidence,
             grayscale=grayscale,
-            region=region,
+            region=search_region,
         )
     except Exception as e:
         # Some pyautogui/pyscreeze versions raise ImageNotFoundException instead of returning None.
@@ -836,55 +863,58 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     """
 
     # Tunables
-    time_out = 20          # placement loop attempts
-    time_out_2 = 50        # time to wait for hotbar icon to appear
+    place_attempts = 14
+    hotbar_wait_checks = 20
+    hotbar_poll_delay = 0.04
     white_ui = (255, 255, 255)
+    hb_region = region if region is not None else HOTBAR_REGION
 
-    # 1) Wait for the unit icon to exist, then click it
-    if region is None:
-        while not bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False):
-            if time_out_2 <= 0:
-                break
-            time_out_2 -= 1
-            time.sleep(0.1)
-        click_image_center(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, offset=(0, 0))
-    else:
-        while not bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, region=region):
-            if time_out_2 <= 0:
-                break
-            time_out_2 -= 1
-            time.sleep(0.1)
-        click_image_center(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, offset=(0, 0), region=region)
-
-    time.sleep(0.2)
+    # 1) Find and arm hotbar icon (bounded to hotbar region for speed)
+    armed = False
+    hb_img = f"Winter/{unit}_hb.png"
+    for _ in range(hotbar_wait_checks):
+        if click_image_center(
+            hb_img,
+            confidence=0.8,
+            grayscale=False,
+            offset=(0, 0),
+            region=hb_region,
+            delay=0.05,
+            retries=1,
+            retry_delay=0.0,
+        ):
+            armed = True
+            break
+        time.sleep(hotbar_poll_delay)
+    if not armed:
+        print(f"[place_unit] {unit} hotbar icon not found in time.")
+        return
 
     # 2) Try to place it
-    click(pos[0], pos[1], delay=0.67)
-    time.sleep(0.5)
+    time.sleep(0.18)  # allow hotbar selection to fully arm
+    click(pos[0], pos[1], delay=0.57)
+    time.sleep(0.27)
 
     # Keep attempting until the “close/back” pixel becomes white (means menu closed / placement done)
-    while not pixel_matches_seen(607, 381, white_ui, tol=25, sample_half=2):
-        time_out -= 1
-        if time_out <= 0:
+    for attempt in range(place_attempts):
+        if pixel_matches_seen(607, 381, white_ui, tol=25, sample_half=2):
+            break
+        if attempt == place_attempts - 1:
             print("timed out")
             break
         if not g_toggle:
             break
 
-        click(pos[0], pos[1], delay=0.67)
-
-        seen = pixel_color_seen(607, 381, sample_half=2)
-        # print(f"Target Color: {white_ui}, seen: {seen}")
-
-        time.sleep(0.1)
+        click(pos[0], pos[1], delay=0.51)
+        time.sleep(0.09)
         tap('q')  # your “cancel/rotate/nudge” behaviour
-        time.sleep(0.5)
+        time.sleep(0.15)
 
         click(pos[0], pos[1], delay=0.1)
-        time.sleep(1)
+        time.sleep(0.30)
 
         # If the game shows “UnitExists” we’re done (unit placed)
-        if bt.does_exist("Winter/UnitExists.png", confidence=0.9, grayscale=True):
+        if bt.does_exist("Winter/UnitExists.png", confidence=0.9, grayscale=True, region=(528, 343, 223, 84)):
             break
 
         # If we *now* see the UI pixel is white, also done
@@ -892,17 +922,17 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
             break
 
         # Re-click hotbar icon to re-arm placement if needed
-        print("Retrying placement...")
-        try:
-            if region is None:
-                click_image_center(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, offset=(0, 0))
-            else:
-                click_image_center(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, offset=(0, 0), region=region)
-            time.sleep(0.2)
-        except Exception as e:
-            print(f"Error {e}")
-
-        time.sleep(0.2)
+        click_image_center(
+            hb_img,
+            confidence=0.8,
+            grayscale=False,
+            offset=(0, 0),
+            region=hb_region,
+            delay=0.12,
+            retries=1,
+            retry_delay=0.0,
+        )
+        time.sleep(0.12)
 
     if close:
         click(607, 381, delay =0.1)
@@ -910,12 +940,12 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     print(f"Placed {unit} at {pos}")
 
 def buy_monarch():  # this just presses e until it buys monarch, use after direction('5')
-    monarch_region = (686, 606, 818, 646)
+    monarch_region = (583, 508, 288, 220)
     e_delay = 0.4
     timeout = 3/e_delay
     tap('e')
     while not bt.does_exist('Winter/DetectArea.png',confidence=0.7,grayscale=True):
-        if bt.does_exist('Winter/Monarch.png',confidence=0.7,grayscale=False):
+        if bt.does_exist('Winter/Monarch.png',confidence=0.7,grayscale=False, region=monarch_region):
             break
         if timeout < 0:
             quick_rts()
@@ -925,7 +955,7 @@ def buy_monarch():  # this just presses e until it buys monarch, use after direc
         tap('e')
         time.sleep(e_delay)
     print("Found area")
-    while not bt.does_exist('Winter/Monarch.png',confidence=0.7,grayscale=False):
+    while not bt.does_exist('Winter/Monarch.png',confidence=0.7,grayscale=False, region=monarch_region):
         if not g_toggle:
             break
         tap('e')
@@ -938,7 +968,7 @@ def place_hotbar_units():
     while placing:
         is_unit = False
         for unit in Settings.Units_Placeable:
-            if bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False):
+            if bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, region=HOTBAR_REGION):
                 if unit != "Doom":
                     is_unit = True
                     unit_pos = Settings.Unit_Positions.get(unit)
@@ -1031,14 +1061,14 @@ def set_boss(): # Sets unit priority to boss
     tap('r')
     
 def on_failure():
-    print("ran")
+    print("Failed. Fixing...")
     time_out = 60/0.4
     click(Settings.REPLAY_BUTTON_POS[0],Settings.REPLAY_BUTTON_POS[1],delay =0.1)
     time.sleep(1)
     while bt.does_exist("Winter/DetectLoss.png",confidence=0.7,grayscale=True):
         if time_out<0:
             #on_disconnect()
-            print("should disconnect")
+            print("Should disconnect")
         click(Settings.REPLAY_BUTTON_POS[0],Settings.REPLAY_BUTTON_POS[1],delay =0.1)
         print("Retrying...")
         time_out-=1
@@ -1311,7 +1341,7 @@ def main():
                 click(50,50,delay=0.1,right_click=True,dont_move=True)
             else:
                 click(Settings.CTM_NAMI_CARD[0], Settings.CTM_NAMI_CARD[1], delay =0.1, right_click=True) # Goes to nami's card
-            time.sleep(2)
+            time.sleep(4)
             #Nami
             while not bt.does_exist('Winter/Nami_hb.png', confidence=0.7, grayscale=False): # Buys nami's card
                 tap('e')
@@ -1531,53 +1561,6 @@ def main():
                         # more gamble
                         directions('3')
                         
-                if not Gamer_Upgraded:
-                    print("Upgrading Hero")
-                    if Settings.Unit_Placements_Left['Hero'] == 0:
-                        quick_rts()
-                        time.sleep(1)
-                        for gamer in Settings.Unit_Positions['Hero']:
-                            click(gamer[0],gamer[1],delay =0.1)
-                            secure_select((gamer[0],gamer[1]))
-                            time.sleep(0.5)
-                            tap('z')
-                            set_boss()
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                            directions('5')
-                            buy_monarch()
-                            quick_rts()
-                            time.sleep(0.5)
-                            secure_select((gamer[0],gamer[1]))
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                        Gamer_Upgraded = True
-                        # more gamble
-                        directions('3')
-                        
-                if not Kuzan_Upgraded:
-                    print("Upgrading Kuzan")
-                    if Settings.Unit_Placements_Left['Kuzan'] == 0:
-                        quick_rts()
-                        time.sleep(1)
-                        for kuzan in Settings.Unit_Positions['Kuzan']:
-                            click(kuzan[0],kuzan[1],delay =0.1)
-                            secure_select((kuzan[0],kuzan[1]))
-                            time.sleep(0.5)
-                            tap('z')
-                            set_boss()
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                            directions('5')
-                            buy_monarch()
-                            quick_rts()
-                            time.sleep(0.5)
-                            secure_select((kuzan[0],kuzan[1]))
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                        Kuzan_Upgraded = True
-                        # more gamble
-                        directions('3')
                         
                 if not ainzplaced:
                     if Settings.Unit_Placements_Left['Ainz'] == 0: # Ainz thingy
@@ -1669,7 +1652,7 @@ def main():
                 time.sleep(1)
                 while True:
                     print("Upgrading")
-                    if bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False):
+                    if bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
                         print("Stop")
                         break
                     if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
@@ -1740,19 +1723,48 @@ def main():
                 time.sleep(0.5)
                 secure_select((ice[0],ice[1]))
                 time.sleep(0.5)
-                while True:
-                    if bt.does_exist("Winter/StopUpgradeRukia.png",confidence=0.8,grayscale=True):
-                        print("Stop")
-                        break
-                    if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
-                        print("Stop, maxed on accident")
-                        break
+                for i in range(13):
                     tap('t')
                     time.sleep(0.5)
+
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
 
-               
+            
+            for gamer in Settings.Unit_Positions['Hero']:
+                click(gamer[0],gamer[1],delay =0.1)
+                secure_select((gamer[0],gamer[1]))
+                time.sleep(0.5)
+                tap('z')
+                set_boss()
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                directions('5')
+                buy_monarch()
+                quick_rts()
+                time.sleep(0.5)
+                secure_select((gamer[0],gamer[1]))
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+
+            
+            for kuzan in Settings.Unit_Positions['Kuzan']:
+                click(kuzan[0],kuzan[1],delay =0.1)
+                secure_select((kuzan[0],kuzan[1]))
+                time.sleep(0.5)
+                tap('z')
+                set_boss()
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                directions('5')
+                buy_monarch()
+                quick_rts()
+                time.sleep(0.5)
+                secure_select((kuzan[0],kuzan[1]))
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                
+                        
             for esc in Settings.Unit_Positions['Escanor']:
                 click(esc[0],esc[1],delay =0.1)
                 time.sleep(0.5)
