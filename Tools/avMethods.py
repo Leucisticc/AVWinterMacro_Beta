@@ -1,11 +1,9 @@
 import os
-import shutil
 import sys
 import time
 
 import cv2
 import numpy as np
-import pytesseract
 
 try:
     from Tools import botTools as bt
@@ -16,14 +14,6 @@ except ModuleNotFoundError:
         sys.path.insert(0, PROJECT_ROOT)
     from Tools import botTools as bt
     from Tools import winTools as wt
-
-
-# Apple Silicon Homebrew default
-DEFAULT_TESS = "/opt/homebrew/bin/tesseract"
-if os.path.exists(DEFAULT_TESS):
-    pytesseract.pytesseract.tesseract_cmd = DEFAULT_TESS
-else:
-    pytesseract.pytesseract.tesseract_cmd = shutil.which("tesseract") or "tesseract"
 
 
 WAVE_MIN = 0
@@ -137,28 +127,6 @@ def get_wave(offset: tuple[int, int] | None = None) -> int:
 
     except Exception:
         return -1
-
-
-def read_region(region: tuple[int, int, int, int] | None = None) -> str:
-    """
-    Reads letters in a region. Returns "" if nothing detected.
-    """
-    try:
-        if region is None:
-            return ""
-
-        screenshot = wt.screenshot_region(region=region)
-        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
-        _, threshold = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY)
-        thresh = cv2.resize(threshold, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-
-        return pytesseract.image_to_string(
-            thresh,
-            config="--psm 7 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-        ).strip()
-    except Exception as e:
-        print(f"Error in read_region: {e}")
-        return ""
 
 
 def restart_match():

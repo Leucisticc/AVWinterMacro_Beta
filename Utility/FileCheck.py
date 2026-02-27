@@ -42,7 +42,6 @@ REQUIRED_PATHS = [
     "Tools/botTools.py",
     "Tools/winTools.py",
     "Resources",
-    "tesseract",
 ]
 
 
