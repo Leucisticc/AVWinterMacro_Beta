@@ -5,6 +5,8 @@ import sys
 import os
 import subprocess
 import json
+import re
+from urllib.request import Request, urlopen
 
 from Tools import botTools as bt
 from Tools import winTools as wt
@@ -25,8 +27,11 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.5 beta'
+VERSION_N = '1.6.0'
 print(f"Version: {VERSION_N}")
+
+UPDATE_OWNER = "Leucisticc"
+UPDATE_REPO = "AVWinterMacro_Beta"
 
 CHECK_LOOTBOX = False # Leave false for faster runs
 
@@ -79,6 +84,65 @@ def reset_runtime_stats():
     data["runtime"] = "0:00:00"
     save_json_data(data)
 
+
+def _normalize_version(version_text: str):
+    text = (version_text or "").strip().lower()
+    nums = [int(x) for x in re.findall(r"\d+", text)]
+    nums = (nums + [0, 0, 0])[:3]
+
+    if "alpha" in text:
+        stage = 0
+    elif "beta" in text:
+        stage = 1
+    elif "rc" in text:
+        stage = 2
+    else:
+        stage = 3
+    return (nums[0], nums[1], nums[2], stage)
+
+
+def _remote_release_version() -> str | None:
+    try:
+        url = f"https://api.github.com/repos/{UPDATE_OWNER}/{UPDATE_REPO}/releases/latest"
+        req = Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "WinterEventVersionCheck",
+            },
+        )
+        with urlopen(req, timeout=6) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        return str(data.get("tag_name", "")).lstrip("v").strip() or None
+    except Exception:
+        return None
+
+
+def _prompt_update_if_outdated():
+    """
+    Warns users when local VERSION_N is older than latest GitHub release.
+    Offers to launch Utility/FileCheck.py.
+    """
+    remote_ver = _remote_release_version()
+    if not remote_ver:
+        return
+
+    local_ver = str(VERSION_N).strip()
+    if _normalize_version(remote_ver) <= _normalize_version(local_ver):
+        return
+
+    print(f"\n[Update] New version available: {remote_ver} (local: {local_ver})")
+    run_update = input("[Update] Run Utility/FileCheck.py now? [Y/N] > ").strip().lower()
+    if run_update != "y":
+        return
+
+    file_check_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Utility", "FileCheck.py")
+    try:
+        subprocess.run([sys.executable, file_check_path], check=False)
+    except Exception as e:
+        print(f"[Update] Failed to start FileCheck.py: {e}")
+    sys.exit(0)
+
 if os.path.exists(Settings_Path):
     if os.path.exists(WE_Json):
         data = load_json_data()
@@ -98,6 +162,8 @@ else:
     sys.exit()
     
 Settings.Units_Placeable.append("Doom")
+
+_prompt_update_if_outdated()
 
 start = datetime.now()
 if not USE_KAGUYA:
@@ -914,7 +980,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         time.sleep(0.30)
 
         # If the game shows “UnitExists” we’re done (unit placed)
-        if bt.does_exist("Winter/UnitExists.png", confidence=0.9, grayscale=True, region=(528, 343, 223, 84)):
+        if bt.does_exist("Winter/UnitExists.png", confidence=0.9, grayscale=True):
             break
 
         # If we *now* see the UI pixel is white, also done

@@ -13,9 +13,8 @@ from urllib.request import Request, urlopen
 MAIN_FOLDER = Path(__file__).resolve().parents[1]
 
 # Change these for your repo/release setup.
-OWNER = "loxerex"
-REPO = "Winter-Normal-Macro"
-ASSET_NAME = "Winter-Normal-Macro.zip"
+OWNER = "Leucisticc"
+REPO = "AVWinterMacro_Beta"
 VERSION_FILE = "version.json"  # optional; falls back to Winter_Event.py VERSION_N
 
 # Only these paths are replaced during update.
@@ -194,9 +193,7 @@ def _run_file_check() -> None:
 
 
 def _pick_asset_url(release: dict) -> str | None:
-    for asset in release.get("assets", []):
-        if asset.get("name") == ASSET_NAME:
-            return asset.get("browser_download_url")
+    # Always use GitHub's source zipball so no manual asset upload is required.
     return release.get("zipball_url")
 
 
@@ -214,9 +211,7 @@ def _run_update() -> None:
 
     asset_url = _pick_asset_url(release)
     if not asset_url:
-        raise RuntimeError(
-            f"Could not find '{ASSET_NAME}' asset or zipball in latest release."
-        )
+        raise RuntimeError("Could not find zipball_url in latest release.")
 
     print(f"Updating {local_ver} -> {remote_tag}")
     zip_bytes = _download(asset_url)
