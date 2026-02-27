@@ -7,4 +7,3 @@ pynput
 requests
 pyobjc
 pywinctl
-webhook
