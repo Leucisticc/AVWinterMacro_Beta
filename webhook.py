@@ -16,6 +16,10 @@ def _to_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _format_number(value: Any) -> str:
+    return f"{_to_int(value, 0):,}"
+
+
 def _prepare_image_file(img):
     """
     Accept BytesIO/bytes/file-like objects and return a Discord multipart tuple.
@@ -41,6 +45,7 @@ def _build_embed_fields(
     num_runs: int | None = None,
     win: int | None = None,
     lose: int | None = None,
+    rewards: int | None = None,
 ):
     fields = [
         {"name": "🕒 Run Time", "value": str(run_time), "inline": True},
@@ -60,7 +65,7 @@ def _build_embed_fields(
                 {"name": "🔁 Total Runs", "value": str(total), "inline": True},
                 {
                     "name": "💰 Rewards",
-                    "value": f"about ~{210000 * total} collected",
+                    "value": _format_number(rewards) if rewards is not None else f"about ~{210000 * total} collected",
                     "inline": True,
                 },
             ]
@@ -80,6 +85,7 @@ def send_webhook(
     img=None,
     win: int | None = None,
     lose: int | None = None,
+    rewards: int | None = None,
 ):
     """
     Backward compatible with the current project call:
@@ -106,6 +112,7 @@ def send_webhook(
                     num_runs=num_runs,
                     win=win,
                     lose=lose,
+                    rewards=rewards,
                 ),
                 "image": {"url": "attachment://screenshot.png"} if img is not None else None,
                 "thumbnail": {
