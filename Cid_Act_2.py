@@ -9,6 +9,11 @@ from Tools import botTools as bt
 from Tools import winTools as wt
 from Tools import avMethods as avM
 
+failed_runs = 0
+failed_matches = 0
+
+MAKIMA_MEMORIA = True #Set to false if using rukias memoria
+
 USE_MOUNT = True
 GEMS_PER_WIN = 150
 VOTE_START_POS = (840,228)
@@ -29,6 +34,7 @@ if USE_MOUNT:
         "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (546, 626)},
         "sasuke": {"name": "Sasuke", "hotbar": (640, 835), "pos": (599, 574)},
         "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (476, 523)},
+        "setup": {"name": "setup", "hotbar": (560, 835), "pos": (745, 547)},
     }
 else:
     UNITS = {
@@ -37,6 +43,7 @@ else:
         "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (546, 626)},
         "sasuke": {"name": "Sasuke", "hotbar": (640, 835), "pos": (572, 571)},
         "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (432, 527)},
+        "setup": {"name": "setup", "hotbar": (560, 835), "pos": (745, 547)},
     }
 
 keyboard_controller = Controller()
@@ -89,38 +96,12 @@ def tap(key, hold=0.04, post_delay=0.03):
         pyautogui.press(str(key))
     time.sleep(post_delay)
 
-# def spam_keys_for_duration(keys=("a", "s", "d", "f", "g"), duration=6.0, key_gap=0.004):
-#     end_time = time.perf_counter() + duration
-#     while time.perf_counter() < end_time:
-#         for key in keys:
-#             keyboard_controller.press(key)
-#             keyboard_controller.release(key)
-#             if key_gap > 0:
-#                 time.sleep(key_gap)
-#             if time.perf_counter() >= end_time:
-#                 break
-
-
-# def spam_clicks_for_duration(positions, duration=6.0, click_delay=0.05, step_delay=0.0):
-#     if not positions:
-#         return
-
-#     end_time = time.perf_counter() + duration
-#     while time.perf_counter() < end_time:
-#         for pos in positions:
-#             click(pos, delay=click_delay)
-#             if step_delay > 0:
-#                 time.sleep(step_delay)
-#             if time.perf_counter() >= end_time:
-#                 break
-
 def chord(keys=("a", "s", "d", "f", "g"), hold=0.03):
     for k in keys:
         keyboard_controller.press(k)
     time.sleep(hold)
     for k in reversed(keys):
         keyboard_controller.release(k)
-
 
 def spam_chord_for_duration(keys=("a", "s", "d", "f", "g"), duration=6.0, hold=0.02, gap=0.005):
     end_time = time.perf_counter() + duration
@@ -129,7 +110,7 @@ def spam_chord_for_duration(keys=("a", "s", "d", "f", "g"), duration=6.0, hold=0
         if gap > 0:
             time.sleep(gap)
 
-
+    
 
 def place_unit(unit, click_delay=0.3, step_delay=0.1):
     click(unit["hotbar"], delay=click_delay)
@@ -161,21 +142,110 @@ def wait_start(delay: int | None = None):
 
         time.sleep(delay)
 
+def quick_rts(): # Returns to spawn
+    locations =[(232, 873), (1153, 503), (1217, 267)]
+    for loc in locations:
+        click(loc[0], loc[1], delay =0.1)
+        time.sleep(0.2)
+        
+def slow_rts(): # Returns to spawn
+    locations =[(232, 873), (1153, 503), (1217, 267)]
+    for loc in locations:
+        click(loc[0], loc[1], delay =1)
+        time.sleep(0.2)
+
     print("❌ Start screen NOT detected (timeout)")
 
+def set_up_raid():
+    wait_start()
+    print("Setting up Raid.")
+    click(398,160,delay=0.5)
+    time.sleep(1)
+    click(438,532,delay=0.5)
+    time.sleep(1)
+    click(VOTE_START_POS)
+    time.sleep(0.5)
+    place_unit(UNITS["setup"])
+    time.sleep(1)
+    click(399,401,delay=0.5)
+    time.sleep(1)
+    click(646,781,delay=0.5)
+    time.sleep(1)
+    click(749,874,delay=0.5)
+    time.sleep(1)
+    tap('o',hold=1)
+    time.sleep(0.5)
+
+def go_to_lobby():
+    print("Going back to lobby.")
+    time.sleep(2)
+    click(218,878,delay=0.8)
+    time.sleep(0.5)
+    click(789,502,delay=0.8)
+    time.sleep(0.5)
+    click(677,568,delay=0.8)
+    while not bt.does_exist("AreaIcon.png", confidence=0.7, grayscale=False):
+        time.sleep(1)
+
+def go_to_raid():
+    print("Walking to raid.")
+    time.sleep(1)
+    click(311,487,delay=1)
+    time.sleep(1)
+    click(652,638,delay=0.5)
+    time.sleep(2)
+    click(652,638,delay=0.5)
+    # click(469,563,right_click=True,delay=5)
+    tap('w', hold=3)
+    tap('a',hold=5)
+    time.sleep(1)
+    click(312,459,delay=0.5)
+    time.sleep(1)
+    click(312,459,delay=0.5)
+    time.sleep(1)
+    click(412,493,delay=0.5)
+    time.sleep(1)
+    click(620,425,delay=0.5)
+    time.sleep(1)
+    click(809,716,delay=0.5)
+    time.sleep(1)
+    click(286,735,delay=0.5)
+
+def rejoin_raid():
+    go_to_lobby()
+    go_to_raid()
+    set_up_raid()
+    
 def wait_end(delay: float = 0.5, timeout: float = 180.0):
+    global failed_runs
+    global failed_matches
     end_time = time.time() + timeout
     while time.time() < end_time:
         try:
-            if bt.does_exist(REPLAY_IMG, confidence=0.7, grayscale=False):
-                print("✅ Replay button detected")
-                return True
+            if bt.does_exist("Victory.png", confidence=0.7, grayscale=False): #Won
+                print("✅ Win detected")
+                return "win"
+            elif bt.does_exist("Failed.png",confidence=0.7, grayscale=False): #Failed
+                print("❌ Failure detected")
+                failed_runs+=1
+                click(REPLAY_POS)
+                time.sleep(0.5)
+                click(REPLAY_POS)
+                quick_rts()
+                slow_rts()
+                if failed_runs>=2:
+                    failed_matches+=1
+                    if failed_matches>=2:
+                        kill()
+                    else:
+                        rejoin_raid()
+                return "fail"
+                
         except Exception as e:
             print(f"replay detect error: {e}")
         time.sleep(delay)
     print("❌ Replay button NOT detected (timeout)")
-    return False
-
+    return "timeout"
 
 def _roblox_window_screenshot_for_webhook():
     try:
@@ -187,8 +257,7 @@ def _roblox_window_screenshot_for_webhook():
         print(f"[Webhook] Roblox window screenshot failed: {e}")
         return None
 
-
-def send_run_webhook(session_start: datetime, wins: int):
+def send_run_webhook(session_start: datetime, wins: int, losses: int):
     runtime = str(datetime.now() - session_start).split(".")[0]
     rewards = wins * GEMS_PER_WIN
     screenshot = _roblox_window_screenshot_for_webhook()
@@ -196,7 +265,7 @@ def send_run_webhook(session_start: datetime, wins: int):
         run_time=runtime,
         task_name="Cid Act 2",
         win=wins,
-        lose=0,
+        lose=losses,
         rewards=rewards,
         img=screenshot,
     )
@@ -229,6 +298,7 @@ def cid_farm():
     session_start = datetime.now()
     total_runs = 0
     wins = 0
+    losses = 0
     while True:
         click(REPLAY_POS)
         time.sleep(0.2)
@@ -268,7 +338,10 @@ def cid_farm():
             click(UNITS["erza"]["pos"], delay=0.3)
             time.sleep(0.3)
             click(ABILITY_POS)
-            time.sleep(6)
+            if MAKIMA_MEMORIA:
+                time.sleep(1.5)
+            else:
+                time.sleep(6)
             click(1026,696)
             time.sleep(0.2)
             click(1026,696)
@@ -317,11 +390,17 @@ def cid_farm():
             click(1137,292)
         
         time.sleep(5)
-        if wait_end():
+        end_state = wait_end()
+        if end_state == "win":
             wins += 1
             total_runs += 1
-            send_run_webhook(session_start=session_start, wins=wins)
-            print(f"Wins: {wins} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
+            send_run_webhook(session_start=session_start, wins=wins, losses=losses)
+            print(f"Runs: {total_runs} | Wins: {wins} | Losses: {losses} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
+        elif end_state == "fail":
+            losses += 1
+            total_runs += 1
+            send_run_webhook(session_start=session_start, wins=wins, losses=losses)
+            print("Run failed; wins not incremented.")
         else:
             print("Replay not detected; skipping win stat update for this cycle.")
         

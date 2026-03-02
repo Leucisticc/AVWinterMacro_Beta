@@ -1,12 +1,15 @@
 import datetime
 import io
 import json
+import time
 from typing import Any
 
 import requests
 
 
-webhook_url = "YOUR_URL_HERE"
+webhook_url = "https://discord.com/api/webhooks/1334989751140225226/gaqC9xAx0D_j0gl_u_gLZ3iC07nmrwcw3_rDxbwjHTbcd450U9k5tfKQ79J8iqupX3y_"
+WEBHOOK_MAX_RETRIES = 3
+WEBHOOK_TIMEOUT_SECONDS = 15
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -132,25 +135,70 @@ def send_webhook(
     if embed.get("image") is None:
         embed.pop("image", None)
 
-    try:
+    def _post_once(use_image: bool) -> requests.Response:
         files = None
-        image_file = _prepare_image_file(img)
-        if image_file is not None:
-            files = {"file": image_file}
-
-        response = requests.post(
+        body = {"payload_json": json.dumps(payload)}
+        if use_image:
+            image_file = _prepare_image_file(img)
+            if image_file is not None:
+                files = {"file": image_file}
+        return requests.post(
             webhook_url,
-            data={"payload_json": json.dumps(payload)},
+            data=body,
             files=files,
-            timeout=15,
+            timeout=WEBHOOK_TIMEOUT_SECONDS,
         )
 
-        if 200 <= response.status_code < 300:
-            return True
+    def _post_with_retries(use_image: bool) -> bool:
+        for attempt in range(1, WEBHOOK_MAX_RETRIES + 1):
+            try:
+                response = _post_once(use_image=use_image)
+                if 200 <= response.status_code < 300:
+                    return True
 
-        print(f"[webhook] request failed: {response.status_code} {response.text}")
+                # Retry transient Discord/network statuses.
+                if response.status_code in (408, 429, 500, 502, 503, 504):
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        sleep_for = float(retry_after) if retry_after else (0.75 * attempt)
+                    except Exception:
+                        sleep_for = 0.75 * attempt
+                    print(f"[webhook] transient failure {response.status_code}, retry {attempt}/{WEBHOOK_MAX_RETRIES} in {sleep_for:.2f}s")
+                    time.sleep(sleep_for)
+                    continue
+
+                print(f"[webhook] request failed: {response.status_code} {response.text}")
+                return False
+
+            except requests.exceptions.SSLError as e:
+                if attempt >= WEBHOOK_MAX_RETRIES:
+                    print(f"[webhook] SSL error after retries: {e}")
+                    return False
+                sleep_for = 0.75 * attempt
+                print(f"[webhook] SSL error, retry {attempt}/{WEBHOOK_MAX_RETRIES} in {sleep_for:.2f}s")
+                time.sleep(sleep_for)
+            except requests.exceptions.RequestException as e:
+                if attempt >= WEBHOOK_MAX_RETRIES:
+                    print(f"[webhook] request error after retries: {e}")
+                    return False
+                sleep_for = 0.75 * attempt
+                print(f"[webhook] request error, retry {attempt}/{WEBHOOK_MAX_RETRIES} in {sleep_for:.2f}s")
+                time.sleep(sleep_for)
+            except Exception as e:
+                print(f"[webhook] error: {e}")
+                return False
+
         return False
 
-    except Exception as e:
-        print(f"[webhook] error: {e}")
-        return False
+    # First try full payload (with screenshot if available).
+    ok = _post_with_retries(use_image=True)
+    if ok:
+        return True
+
+    # Fallback: some clients fail on multipart/TLS path, send without image.
+    if img is not None:
+        embed.pop("image", None)
+        print("[webhook] retrying without image attachment")
+        return _post_with_retries(use_image=False)
+
+    return False
