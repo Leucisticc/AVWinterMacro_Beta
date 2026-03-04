@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import sys
 import tempfile
 import zipfile
@@ -42,6 +43,17 @@ REQUIRED_PATHS = [
     "Tools/winTools.py",
     "Resources",
 ]
+
+def _ssl_context():
+    """
+    Build an SSL context that prefers certifi CA bundle when available.
+    This helps macOS Python environments missing system CA linkage.
+    """
+    try:
+        import certifi  # optional dependency
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def _is_whitelisted(rel_path: str) -> bool:
@@ -90,13 +102,13 @@ def _github_latest_release() -> dict:
             "User-Agent": "WinterFileChecker",
         },
     )
-    with urlopen(req, timeout=30) as response:
+    with urlopen(req, timeout=30, context=_ssl_context()) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _download(url: str) -> bytes:
     req = Request(url, headers={"User-Agent": "WinterFileChecker"})
-    with urlopen(req, timeout=90) as response:
+    with urlopen(req, timeout=90, context=_ssl_context()) as response:
         return response.read()
 
 
@@ -262,4 +274,6 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         print(f"Update failed: {exc}")
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            print("Tip: install certifi (`pip install certifi`) or run Python's Install Certificates.command on macOS.")
         sys.exit(1)
