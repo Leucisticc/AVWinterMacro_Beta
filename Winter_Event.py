@@ -6,6 +6,7 @@ import os
 import subprocess
 import json
 import re
+import ssl
 from urllib.request import Request, urlopen
 
 from Tools import botTools as bt
@@ -27,7 +28,7 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.6.3'
+VERSION_N = '1.6.31'
 print(f"Version: {VERSION_N}")
 
 UPDATE_OWNER = "Leucisticc"
@@ -110,6 +111,31 @@ def _normalize_version(version_text: str):
         stage = 3
     return (nums[0], nums[1], nums[2], stage)
 
+def _ssl_context():
+    """
+    Prefer certifi CA bundle when available (helps some macOS Python installs).
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+def _local_app_version() -> str:
+    """
+    Source local version from version.json first, then fall back to VERSION_N.
+    """
+    version_path = Path(__file__).resolve().parent / "version.json"
+    try:
+        if version_path.exists():
+            data = json.loads(version_path.read_text(encoding="utf-8"))
+            v = str(data.get("version", "")).strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    return str(VERSION_N).strip()
+
 
 def _remote_release_version() -> str | None:
     try:
@@ -121,10 +147,11 @@ def _remote_release_version() -> str | None:
                 "User-Agent": "WinterEventVersionCheck",
             },
         )
-        with urlopen(req, timeout=6) as response:
+        with urlopen(req, timeout=8, context=_ssl_context()) as response:
             data = json.loads(response.read().decode("utf-8"))
         return str(data.get("tag_name", "")).lstrip("v").strip() or None
-    except Exception:
+    except Exception as e:
+        print(f"[Update] Could not check latest release: {e}")
         return None
 
 
@@ -133,17 +160,31 @@ def _prompt_update_if_outdated():
     Warns users when local VERSION_N is older than latest GitHub release.
     Offers to launch Utility/FileCheck.py.
     """
+    local_ver = _local_app_version()
     remote_ver = _remote_release_version()
     if not remote_ver:
+        print(f"[Update] Skipping version gate (remote unavailable). Local: {local_ver}")
         return
 
-    local_ver = str(VERSION_N).strip()
     if _normalize_version(remote_ver) <= _normalize_version(local_ver):
         return
 
-    print(f"\n[Update] New version available: {remote_ver} (local: {local_ver})")
-    run_update = input("[Update] Run Utility/FileCheck.py now? [Y/N] > ").strip().lower()
+    print(f"\n[Update] Your file is outdated.")
+    print(f"[Update] Latest: {remote_ver} | Local: {local_ver}")
+    try:
+        run_update = input("[Update] Run Utility/FileCheck.py now? [Y/N] > ").strip().lower()
+    except EOFError:
+        run_update = "n"
+
     if run_update != "y":
+        try:
+            continue_anyway = input("[Update] Continue anyway on outdated version? [Y/N] > ").strip().lower()
+        except EOFError:
+            continue_anyway = "y"
+        if continue_anyway != "y":
+            print("[Update] Exiting. Please update and relaunch.")
+            sys.exit(0)
+        print("[Update] Continuing on outdated version by user choice.")
         return
 
     file_check_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Utility", "FileCheck.py")
