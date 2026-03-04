@@ -7,7 +7,7 @@
     "AUTO_START": true,
     "ENABLE_WEBHOOKS": true,
     "ENABLE_FAILURE_PING": true,
-    "FAILURE_PING_TEXT": "@everyone",
+    "ALERT_TARGET": "@everyone",
     "CTM_P1_P2": false,
     "CTM_AREA_1": [
         [

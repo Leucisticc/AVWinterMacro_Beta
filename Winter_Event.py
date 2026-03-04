@@ -25,15 +25,15 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.6.31'
+VERSION_N = '1.6.5'
 print(f"Version: {VERSION_N}")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
-NAMI_PLACE_TIMEOUT_SECONDS = 50
+PLACEMENT_TIMEOUT_SECONDS = 50
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "21429638329559910579195390976200" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
 
@@ -44,6 +44,8 @@ TAK_FINDER = False # turn off if it runs into a wall while trying to find tak
 RUNS_BEFORE_REJOIN = 0 # 0 will make it so this doesnt happen, change it to what round u want it to restart
 
 AINZ_SPELLS = False #Keep FALSE!
+
+# To change discord pings in settings: @everyone, <@user_id>, <@&role_id>
 
 SLOT_ONE = (499, 150, 122, 110)
 REG_SPEED = (495, 789, 570, 866)
@@ -124,13 +126,13 @@ if not hasattr(Settings, "ENABLE_FAILURE_PING"):
 else:
     Settings.ENABLE_FAILURE_PING = _to_bool(Settings.ENABLE_FAILURE_PING, default=True)
 
-if not hasattr(Settings, "FAILURE_PING_TEXT"):
-    Settings.FAILURE_PING_TEXT = "@everyone"
+if not hasattr(Settings, "ALERT_TARGET"):
+    Settings.ALERT_TARGET = "@everyone"
     data = load_json_data() or {}
-    data["FAILURE_PING_TEXT"] = "@everyone"
+    data["ALERT_TARGET"] = Settings.ALERT_TARGET
     save_json_data(data)
 else:
-    Settings.FAILURE_PING_TEXT = str(Settings.FAILURE_PING_TEXT or "").strip()
+    Settings.ALERT_TARGET = str(Settings.ALERT_TARGET or "").strip() or "@everyone"
 
 Settings.Units_Placeable.append("Doom")
 
@@ -291,12 +293,33 @@ def wait_for_pixel(x: int,y: int,rgb: tuple[int, int, int],tol: int = 20,timeout
 def setup_cam():
     quick_rts()
     time.sleep(0.5)
-    directions('1', 'rabbit')
-    clicks_look_down = [(404, 400), (649, 772), (745, 858)]
+    press('a')
+    time.sleep(0.4)
+    release('a')
+    time.sleep(1)
+    tap('v')
+    time.sleep(1.5)
+    press('w')
+    time.sleep(1.5)
+    release('w')
+    press('a')
+    time.sleep(1.1)
+    release('a')
+    time.sleep(1)
+    click(566,587,delay=0.5,right_click=True)
+    time.sleep(1.5)
+    tap('v')
+    time.sleep(0.5)
+    tap('e')
+    time.sleep(1)
+    place_unit('Bunny',(700,700),close=False)
+    time.sleep(1)
+    clicks_look_down = [(398, 398), (649, 772), (745, 858)]
     for pt in clicks_look_down:
         click(pt[0], pt[1], delay=1)
         time.sleep(1 if pt == (649, 772) else 0.3)
     time.sleep(0.5)
+    press('o'); time.sleep(1); release('o')
     quick_rts()
 
 # -------------------------
@@ -339,7 +362,7 @@ def _show_disconnect_alert():
                     "task_name": "Winter Event (Disconnected - Rejoining)",
                     "img": reconnect_img,
                     "enabled": Settings.ENABLE_WEBHOOKS,
-                    "alert_text": f"{Settings.FAILURE_PING_TEXT} Disconnected detected, rejoining now.",
+                    "alert_text": f"{Settings.ALERT_TARGET} Disconnected detected, rejoining now.",
                 },
                 daemon=True,
             ).start()
@@ -347,7 +370,7 @@ def _show_disconnect_alert():
             print(f"[Webhook] Disconnect alert error: {e}")
 
 def disconnect_checker():
-    time.sleep(60)  # initial detect delay
+    time.sleep(10)  # initial detect delay
     while True:
         disconnected = (
             bt.does_exist("Disconnected.png", confidence=0.9, grayscale=True, region=(525, 353, 972, 646))
@@ -374,41 +397,6 @@ def disconnect_checker():
             time.sleep(6)
 
         time.sleep(1)
-
-def test_disconnect_detection(
-    timeout_seconds: int = 30,
-    poll_seconds: float = 0.5,
-    run_on_disconnect: bool = False,
-):
-    """
-    Isolated test for disconnect-image matching.
-    Runs without starting the macro loop and prints the matched image name.
-    """
-    region = (525, 353, 972, 646)
-    checks = [
-        "Disconnected.png",
-        "Disconnect_Two.png",
-        "Disconnect_Three.png",
-    ]
-
-    print(f"[DisconnectTest] Running for up to {timeout_seconds}s")
-    print(f"[DisconnectTest] Region={region}, confidence=0.9, grayscale=True")
-    print(f"[DisconnectTest] run_on_disconnect={run_on_disconnect}")
-
-    end_time = time.time() + timeout_seconds
-    while time.time() < end_time:
-        for img_name in checks:
-            if bt.does_exist(img_name, confidence=0.9, grayscale=True, region=region):
-                print(f"[DisconnectTest] MATCH: {img_name}")
-                _show_disconnect_alert()
-                if run_on_disconnect:
-                    print("[DisconnectTest] Running on_disconnect()...")
-                    on_disconnect()
-                return True
-        time.sleep(poll_seconds)
-
-    print("[DisconnectTest] No disconnect image matched within timeout.")
-    return False
 
 def on_disconnect():
     """
@@ -498,23 +486,25 @@ def on_disconnect():
     click(745, 560, delay=0.1)
     time.sleep(2)
     click(301, 676, delay=0.1)
-    time.sleep(2)
-
+    time.sleep(10)
     wait_start()
-
+    click(835, 226, delay =0.1) # Start Match
     press('i')
-    time.sleep(1)
+    time.sleep(0.5)
     release('i')
-    pyautogui.moveTo(759, 900)
+    time.sleep(0.5)
     press('o')
     time.sleep(1)
     release('o')
-    click(491, 532, delay=0.2)
     time.sleep(0.5)
+    click(483, 536, delay=0.2)
+    time.sleep(1)
     click(405,160,delay=0.2)
     time.sleep(0.5)
     click(405,160,delay=0.2)
+    time.sleep(0.5)
     setup_cam()
+    avM.restart_match()
     
 # Wait for start screen
 def wait_start(delay: int | None = None):
@@ -523,13 +513,12 @@ def wait_start(delay: int | None = None):
         delay = 1
 
     target = (99, 214, 63)
-
+    print(f"Looking for start screen...")
     while i < 90:
         i += 1
         try:
             # seen = pixel_color_seen(816, 231, sample_half=2)  # 5x5 median
             # print(f"Looking for start screen: Seen = {seen}")
-            print(f"Looking for start screen.")
 
             if bt.does_exist("VoteStart.png", confidence=0.7, grayscale=False, region=(767, 189, 127,83)) or pixel_matches_seen(816, 231, target, tol=35, sample_half=2): 
                 print("✅ Start screen detected")
@@ -1108,7 +1097,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     """
 
     # Tunables
-    place_attempts = 14
+    place_attempts = 3
     hotbar_wait_checks = 20
     hotbar_poll_delay = 0.04
     white_ui = (255, 255, 255)
@@ -1159,7 +1148,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         time.sleep(0.30)
 
         # If the game shows “UnitExists” we’re done (unit placed)
-        if bt.does_exist("Winter/UnitExists.png", confidence=0.9, grayscale=True):
+        if bt.does_exist("Winter/UnitExists.png", confidence=0.8, grayscale=True):
             break
 
         # If we *now* see the UI pixel is white, also done
@@ -1350,7 +1339,7 @@ def _record_failure_and_notify(reason: str = "Failure"):
                     "task_name": f"Winter Event (Failed: {reason})",
                     "img": loss_img,
                     "enabled": Settings.ENABLE_WEBHOOKS,
-                    "alert_text": Settings.FAILURE_PING_TEXT,
+                    "alert_text": Settings.ALERT_TARGET,
                 },
                 daemon=True,
             ).start()
@@ -1358,7 +1347,7 @@ def _record_failure_and_notify(reason: str = "Failure"):
             print(f"[Webhook] Failure ping error: {e}")
 
 
-def _buy_and_place_nami_with_timeout(timeout_seconds: int = NAMI_PLACE_TIMEOUT_SECONDS) -> bool:
+def _buy_and_place_nami_with_timeout(timeout_seconds: int = PLACEMENT_TIMEOUT_SECONDS) -> bool:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline and g_toggle:
         if not bt.does_exist('Winter/Nami_hb.png', confidence=0.7, grayscale=False):
@@ -1374,6 +1363,25 @@ def _buy_and_place_nami_with_timeout(timeout_seconds: int = NAMI_PLACE_TIMEOUT_S
 
         # After successful placement, Nami should no longer be in hotbar.
         if not bt.does_exist('Winter/Nami_hb.png', confidence=0.7, grayscale=False):
+            return True
+
+    return False
+
+def _buy_and_place_tak_with_timeout(timeout_seconds: int = PLACEMENT_TIMEOUT_SECONDS) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline and g_toggle:
+        if not bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
+            tap('e')
+            time.sleep(0.5)
+            continue
+
+        place_unit("Tak", Settings.Unit_Positions.get("tak"))
+        tap('z')
+        click(607, 381, delay=0.1)
+        time.sleep(1)
+
+        # After successful placement, Nami should no longer be in hotbar.
+        if not bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
             return True
 
     return False
@@ -1525,7 +1533,6 @@ def main():
                 
             Settings.Unit_Placements_Left = Reset_Placements.copy()
             
-            print("Starting new match")
             wait_start()
             quick_rts()
             time.sleep(2)
@@ -1584,52 +1591,69 @@ def main():
             
             # Tak's placement + max
             
+            # time.sleep(1)
+            # click(754,418,delay=0.2,right_click=True)
+            # if bt.does_exist("Winter/Tak_Detect.png", confidence=0.7, grayscale=True):
+            #     clicked = False
 
-            if bt.does_exist("Winter/Tak_Detect.png", confidence=0.7, grayscale=True):
-                clicked = False
+            #     # try up to 6 times (fast), then fall back
+            #     for _ in range(6):
+            #         ok = click_image_center("Winter/Tak_Detect.png",confidence=0.7,grayscale=True,offset=(0, -20))
+            #         if ok:
+            #             clicked = True
+            #             break
+            #         time.sleep(0.15)
 
-                # try up to 6 times (fast), then fall back
-                for _ in range(6):
-                    ok = click_image_center("Winter/Tak_Detect.png",confidence=0.7,grayscale=True,offset=(0, -20))
-                    if ok:
-                        clicked = True
-                        break
-                    time.sleep(0.15)
+            #     if clicked:
+            #         click(50, 50, delay=0.1, right_click=True, dont_move=True)
+            #     else:
+            #         print("[Tak_Detect] Saw image but click failed -> fallback movement")
+            #         press('w')
+            #         time.sleep(Settings.TAK_W_DELAY)
+            #         release('w')
+            # else:
+            #         print("[Tak_Detect] Saw image but click failed -> fallback movement")
+            #         press('w')
+            #         time.sleep(Settings.TAK_W_DELAY)
+            #         release('w')
 
-                if clicked:
-                    click(50, 50, delay=0.1, right_click=True, dont_move=True)
-                else:
-                    print("[Tak_Detect] Saw image but click failed -> fallback movement")
-                    press('w')
-                    time.sleep(Settings.TAK_W_DELAY)
-                    release('w')
-            else:
-                    print("[Tak_Detect] Saw image but click failed -> fallback movement")
-                    press('w')
-                    time.sleep(Settings.TAK_W_DELAY)
-                    release('w')
-
-            if TAK_FINDER:
-                path_tak = False
-                while not path_tak:
-                    press('w')
-                    time.sleep(0.1)
-                    release('w')
-                    tap('e')
-                    time.sleep(0.4)
-                    if bt.does_exist('Winter/TakDetect.png', confidence=0.7, grayscale=True,region=(581, 676, 958, 752)) or  bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
-                        path_tak = True
-                    time.sleep(0.5)
+            # if TAK_FINDER:
+            #     path_tak = False
+            #     while not path_tak:
+            #         press('w')
+            #         time.sleep(0.1)
+            #         release('w')
+            #         tap('e')
+            #         time.sleep(0.4)
+            #         if bt.does_exist('Winter/TakDetect.png', confidence=0.7, grayscale=True,region=(581, 676, 958, 752)) or  bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
+            #             path_tak = True
+            #         time.sleep(0.5)
             # Press e until tak is bought
-            while not bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
-                tap('e')
-                time.sleep(0.2)
+            # while not bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
+            #     tap('e')
+            #     time.sleep(0.5)
             
-            place_unit("Tak", Settings.Unit_Positions.get("tak"))
-            tap('z')
-            time.sleep(0.5)
-            click(607, 381, delay =1)
+            # place_unit("Tak", Settings.Unit_Positions.get("tak"))
+            # tap('z')
+            # time.sleep(0.5)
+            # click(607, 381, delay =1)
+            # time.sleep(1)
+            
             time.sleep(1)
+            click(754,400,delay=0.2,right_click=True) # Goes to Tak's card
+            time.sleep(3)
+            # Tak (timeout-safe): if not placed quickly, treat as failed run and restart.
+            if not _buy_and_place_tak_with_timeout():
+                print(f"[Tak] Failed to place within {PLACEMENT_TIMEOUT_SECONDS}s. Restarting run as failure.")
+                _record_failure_and_notify(reason=f"Tak Timeout ({PLACEMENT_TIMEOUT_SECONDS}s)")
+                match_restarted = False
+                while not match_restarted and g_toggle:
+                    print("[Restart] Tak timeout restart...")
+                    avM.restart_match()
+                    avM.restart_match()
+                    time.sleep(2)
+                    match_restarted = True
+                continue
             
             #DIR_NAMICARD
             if bt.does_exist("Winter/Nami_detect.png",confidence=0.8,grayscale=True):
@@ -1641,8 +1665,8 @@ def main():
             time.sleep(4)
             # Nami (timeout-safe): if not placed quickly, treat as failed run and restart.
             if not _buy_and_place_nami_with_timeout():
-                print(f"[Nami] Failed to place within {NAMI_PLACE_TIMEOUT_SECONDS}s. Restarting run as failure.")
-                _record_failure_and_notify(reason=f"Nami Timeout ({NAMI_PLACE_TIMEOUT_SECONDS}s)")
+                print(f"[Nami] Failed to place within {PLACEMENT_TIMEOUT_SECONDS}s. Restarting run as failure.")
+                _record_failure_and_notify(reason=f"Nami Timeout ({PLACEMENT_TIMEOUT_SECONDS}s)")
                 match_restarted = False
                 while not match_restarted and g_toggle:
                     print("[Restart] Nami timeout restart...")
@@ -1798,7 +1822,7 @@ def main():
                             AINZ_SPELLS = True
                         click(pos[0], pos[1], delay=0.67) # Place world destroyer
                         time.sleep(0.5)
-                        while not pixel_matches_seen(607, 381, (255, 255, 255), tol=20, sample_half=2):
+                        while not pixel_matches_seen(604, 382, (255, 255, 255), tol=20, sample_half=2) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
                             if not g_toggle:
                                 break
                             click(pos[0], pos[1], delay=0.67)
@@ -2024,7 +2048,10 @@ def main():
                 for i in range(13):
                     tap('t')
                     time.sleep(0.5)
-                while not bt.does_exist("StopUpgradeRukia.png", confidence=0.7, grayscale = False):
+                while not bt.does_exist("Winter/StopUpgradeRukia.png", confidence=0.7, grayscale = False):
+                    if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
+                        print("Stop, maxed on accident")
+                        break
                     tap('t')
                     time.sleep(1)
 
@@ -2312,20 +2339,12 @@ def _osascript(script: str) -> bool:
 def focus_roblox():
     _osascript('tell application "Roblox" to activate')
     time.sleep(0.2)
-
-if "--test-disconnect" in sys.argv:
-    test_disconnect_detection(timeout_seconds=45, poll_seconds=0.4, run_on_disconnect=False)
-    sys.exit(0)
-
-if "--test-disconnect-reconnect" in sys.argv:
-    test_disconnect_detection(timeout_seconds=45, poll_seconds=0.4, run_on_disconnect=True)
-    sys.exit(0)
-
+    
 if "--restart" in sys.argv:
     on_disconnect()
 
 Thread(target=disconnect_checker, daemon=True).start()
-print(f"Launched with args {sys.argv}")
+# print(f"Launched with args {sys.argv}")
 
 # Auto-start logic stays the same
 if Settings.AUTO_START:

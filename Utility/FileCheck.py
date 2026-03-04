@@ -166,6 +166,42 @@ def _copy_whitelisted(src_root: Path, dst_root: Path, backup_dir: Path) -> list[
         touched.append(dst_path)
     return touched
 
+def _extract_webhook_url(webhook_text: str) -> str | None:
+    m = re.search(r"^\s*webhook_url\s*=\s*['\"]([^'\"]*)['\"]", webhook_text, flags=re.MULTILINE)
+    if not m:
+        return None
+    return m.group(1)
+
+
+def _preserve_local_webhook_url(project_root: Path, backup_dir: Path) -> None:
+    """
+    Keep the user's existing webhook_url after updater replaces webhook.py.
+    """
+    old_webhook = backup_dir / "webhook.py"
+    new_webhook = project_root / "webhook.py"
+    if not old_webhook.exists() or not new_webhook.exists():
+        return
+
+    old_text = old_webhook.read_text(encoding="utf-8", errors="ignore")
+    new_text = new_webhook.read_text(encoding="utf-8", errors="ignore")
+    local_url = _extract_webhook_url(old_text)
+    if not local_url:
+        return
+
+    # Ignore placeholder/default values.
+    if local_url.strip().upper() == "YOUR_URL_HERE":
+        return
+
+    updated_text, count = re.subn(
+        r"^(\s*)webhook_url\s*=.*$",
+        f"webhook_url = {local_url!r}",
+        new_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count == 1 and updated_text != new_text:
+        new_webhook.write_text(updated_text, encoding="utf-8")
+
 
 def _restore_from_backup(project_root: Path, backup_dir: Path, touched_files: list[Path]) -> None:
     for dst_path in touched_files:
@@ -237,6 +273,7 @@ def _run_update() -> None:
             _extract_zip_safely(zip_bytes, temp_path)
             src_root = _find_source_root(temp_path)
             touched_files = _copy_whitelisted(src_root, MAIN_FOLDER, backup_dir)
+            _preserve_local_webhook_url(MAIN_FOLDER, backup_dir)
     except Exception:
         _restore_from_backup(MAIN_FOLDER, backup_dir, touched_files)
         raise

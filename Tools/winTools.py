@@ -145,7 +145,21 @@ def move_window(window, x: int, y: int) -> None:
     try:
         if window is None:
             return
-        window.moveTo(x, y)
+        if hasattr(window, "moveTo"):
+            window.moveTo(x, y)
+            return
+
+        app_name = str(getattr(window, "title", "") or "").strip()
+        if app_name:
+            _set_front_window_position_macos(app_name, x, y)
+            try:
+                window.left = int(x)
+                window.top = int(y)
+            except Exception:
+                pass
+            return
+
+        print("move_window: unsupported window object (no moveTo/title).")
     except Exception as e:
         print(f"move_window error: {e}")
 
@@ -155,7 +169,21 @@ def resize_window(window, x: int, y: int) -> None:
     try:
         if window is None:
             return
-        window.resizeTo(x, y)
+        if hasattr(window, "resizeTo"):
+            window.resizeTo(x, y)
+            return
+
+        app_name = str(getattr(window, "title", "") or "").strip()
+        if app_name:
+            _set_front_window_size_macos(app_name, x, y)
+            try:
+                window.width = int(x)
+                window.height = int(y)
+            except Exception:
+                pass
+            return
+
+        print("resize_window: unsupported window object (no resizeTo/title).")
     except Exception as e:
         print(f"resize_window error: {e}")
 
@@ -165,10 +193,63 @@ def get_winSize(window):
     try:
         if window is None:
             return None
-        return window.size
+        if hasattr(window, "size"):
+            return window.size
+
+        width = getattr(window, "width", None)
+        height = getattr(window, "height", None)
+        if width is not None and height is not None:
+            return (width, height)
+        return None
     except Exception as e:
         print(f"get_winSize error: {e}")
         return None
+
+
+def _set_front_window_position_macos(app_name: str, x: int, y: int) -> None:
+    app_name_escaped = app_name.replace('"', '\\"')
+    script = f'''
+tell application "System Events"
+    if not (exists process "{app_name_escaped}") then return "NO_PROCESS"
+    tell process "{app_name_escaped}"
+        if (count of windows) is 0 then return "NO_WINDOW"
+        set position of front window to {{{int(x)}, {int(y)}}}
+        return "OK"
+    end tell
+end tell
+'''
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(stderr or "osascript failed while moving window")
+
+
+def _set_front_window_size_macos(app_name: str, width: int, height: int) -> None:
+    app_name_escaped = app_name.replace('"', '\\"')
+    script = f'''
+tell application "System Events"
+    if not (exists process "{app_name_escaped}") then return "NO_PROCESS"
+    tell process "{app_name_escaped}"
+        if (count of windows) is 0 then return "NO_WINDOW"
+        set size of front window to {{{int(width)}, {int(height)}}}
+        return "OK"
+    end tell
+end tell
+'''
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(stderr or "osascript failed while resizing window")
 
 
 # =========================
