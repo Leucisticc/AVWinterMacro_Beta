@@ -38,7 +38,7 @@ NAMI_PLACE_TIMEOUT_SECONDS = 50
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "21429638329559910579195390976200" # Not in settings so u dont accidently share ur ps lol
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
 
@@ -353,7 +353,16 @@ def wait_for_pixel(x: int,y: int,rgb: tuple[int, int, int],tol: int = 20,timeout
 
     return False
 
-
+def setup_cam():
+    quick_rts()
+    time.sleep(0.5)
+    directions('1', 'rabbit')
+    clicks_look_down = [(404, 400), (649, 772), (745, 858)]
+    for pt in clicks_look_down:
+        click(pt[0], pt[1], delay=1)
+        time.sleep(1 if pt == (649, 772) else 0.3)
+    time.sleep(0.5)
+    quick_rts()
 
 # -------------------------
 # Safe Restart (Mac)
@@ -371,6 +380,207 @@ def safe_restart():
     subprocess.Popen([sys.executable] + args)
     os._exit(0)
 
+def _show_disconnect_alert():
+    """
+    Best-effort macOS alert to make disconnects obvious while the script auto-recovers.
+    """
+    title = "Winter Event Macro"
+    body = "Disconnected detected. Rejoining private server."
+    script = (
+        f'display notification "{body}" with title "{title}" '
+        'subtitle "Recovery started" sound name "Frog"'
+    )
+    _osascript(script)
+
+    # Optional Discord ping for disconnect/rejoin events.
+    if Settings.ENABLE_WEBHOOKS and Settings.ENABLE_FAILURE_PING:
+        try:
+            reconnect_img = _roblox_window_screenshot_for_webhook()
+            runtime = f"{str((datetime.now() - start)).split('.')[0]}"
+            Thread(
+                target=webhook.send_webhook,
+                kwargs={
+                    "run_time": runtime,
+                    "task_name": "Winter Event (Disconnected - Rejoining)",
+                    "img": reconnect_img,
+                    "enabled": Settings.ENABLE_WEBHOOKS,
+                    "alert_text": f"{Settings.FAILURE_PING_TEXT} Disconnected detected, rejoining now.",
+                },
+                daemon=True,
+            ).start()
+        except Exception as e:
+            print(f"[Webhook] Disconnect alert error: {e}")
+
+def disconnect_checker():
+    time.sleep(60)  # initial detect delay
+    while True:
+        disconnected = (
+            bt.does_exist("Disconnected.png", confidence=0.9, grayscale=True, region=(525, 353, 972, 646))
+            or bt.does_exist("Disconnect_Two.png", confidence=0.9, grayscale=True, region=(525, 353, 972, 646))
+            or bt.does_exist("Disconnect_Three.png", confidence=0.9, grayscale=True, region=(525, 353, 972, 646))
+        )
+
+        if disconnected:
+            print("[Disconnect] Found disconnected prompt")
+            _show_disconnect_alert()
+            try:
+                args = list(sys.argv)
+                if "--stopped" in args:
+                    args.remove("--stopped")
+                while "--restart" in args:
+                    args.remove("--restart")
+
+                sys.stdout.flush()
+                subprocess.Popen([sys.executable, *args, "--restart"])
+                os._exit(0)
+            except Exception as e:
+                print(f"[Disconnect] Restart launch failed: {e}")
+
+            time.sleep(6)
+
+        time.sleep(1)
+
+def test_disconnect_detection(
+    timeout_seconds: int = 30,
+    poll_seconds: float = 0.5,
+    run_on_disconnect: bool = False,
+):
+    """
+    Isolated test for disconnect-image matching.
+    Runs without starting the macro loop and prints the matched image name.
+    """
+    region = (525, 353, 972, 646)
+    checks = [
+        "Disconnected.png",
+        "Disconnect_Two.png",
+        "Disconnect_Three.png",
+    ]
+
+    print(f"[DisconnectTest] Running for up to {timeout_seconds}s")
+    print(f"[DisconnectTest] Region={region}, confidence=0.9, grayscale=True")
+    print(f"[DisconnectTest] run_on_disconnect={run_on_disconnect}")
+
+    end_time = time.time() + timeout_seconds
+    while time.time() < end_time:
+        for img_name in checks:
+            if bt.does_exist(img_name, confidence=0.9, grayscale=True, region=region):
+                print(f"[DisconnectTest] MATCH: {img_name}")
+                _show_disconnect_alert()
+                if run_on_disconnect:
+                    print("[DisconnectTest] Running on_disconnect()...")
+                    on_disconnect()
+                return True
+        time.sleep(poll_seconds)
+
+    print("[DisconnectTest] No disconnect image matched within timeout.")
+    return False
+
+def on_disconnect():
+    """
+    macOS reconnect routine:
+    1) open Roblox private-server URL
+    2) try to focus/position window
+    3) navigate back into the run flow
+    """
+    if not PRIVATE_SERVER_CODE:
+        print("[Disconnect] PRIVATE_SERVER_CODE is empty; cannot auto-rejoin.")
+        return
+
+    join_url = f"roblox://placeId={ROBLOX_PLACE_ID}&linkCode={PRIVATE_SERVER_CODE}/"
+    try:
+        subprocess.Popen(["open", join_url])
+    except Exception as e:
+        print(f"[Disconnect] Could not open Roblox URL: {e}")
+        return
+
+    time.sleep(10)
+    focus_roblox()
+
+    # Best effort window move/resize on macOS.
+    try:
+        window = None
+        for _ in range(20):
+            window = wt.get_window("Roblox")
+            if window is not None:
+                break
+            time.sleep(0.5)
+
+        if window is not None:
+            wt.move_window(window, 200, 100)
+            wt.resize_window(window, 1100, 800)
+    except Exception as e:
+        print(f"[Disconnect] Window resize/move error: {e}")
+
+    while not bt.does_exist("AreaIcon.png", confidence=0.8, grayscale=False):
+        if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+            click(1083, 321, delay=0.1)
+        time.sleep(1)
+
+    time.sleep(1)
+    if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+        click(1083, 321, delay=0.1)
+
+    click_image_center("AreaIcon.png", confidence=0.8, grayscale=False, offset=(0, 0))
+    time.sleep(3)
+
+    open_menu = False
+    spam_thread_started = False
+
+    def spam_e():
+        while not open_menu:
+            tap('e')
+            time.sleep(0.2)
+
+    while not open_menu:
+        click(656, 764, delay=0.1)
+        time.sleep(1)
+        press('a')
+        time.sleep(1)
+        release('a')
+
+        if not spam_thread_started:
+            Thread(target=spam_e, daemon=True).start()
+            spam_thread_started = True
+            
+        press('a')
+        time.sleep(1)
+        release('a')
+            
+        if pixel_matches_seen(888, 269, (165, 232, 235), tol=30):
+            open_menu = True
+
+        if not open_menu:
+            if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+                click(1083, 321, delay=0.1)
+            click_image_center("AreaIcon.png", confidence=0.8, grayscale=False, offset=(0, 0))
+
+        time.sleep(3)
+
+    click(454, 703, delay=0.1)
+    time.sleep(2)
+    click(659, 509, delay=0.1)
+    time.sleep(2)
+    click(745, 560, delay=0.1)
+    time.sleep(2)
+    click(301, 676, delay=0.1)
+    time.sleep(2)
+
+    wait_start()
+
+    press('i')
+    time.sleep(1)
+    release('i')
+    pyautogui.moveTo(759, 900)
+    press('o')
+    time.sleep(1)
+    release('o')
+    click(491, 532, delay=0.2)
+    time.sleep(0.5)
+    click(405,160,delay=0.2)
+    time.sleep(0.5)
+    click(405,160,delay=0.2)
+    setup_cam()
+    
 # Wait for start screen
 def wait_start(delay: int | None = None):
     i = 0
@@ -1167,7 +1377,7 @@ def on_failure():
     time.sleep(1)
     while bt.does_exist("Winter/DetectLoss.png",confidence=0.7,grayscale=True):
         if time_out<0:
-            #on_disconnect()
+            on_disconnect()
             print("Should disconnect")
         click(Settings.REPLAY_BUTTON_POS[0],Settings.REPLAY_BUTTON_POS[1],delay =0.1)
         print("Retrying...")
@@ -1804,16 +2014,15 @@ def main():
             if Settings.USE_WD:
                 secure_select(Settings.Unit_Positions.get("Caloric_Unit"))
                 time.sleep(1)
-                while True:
-                    print("Upgrading")
-                    if bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
-                        print("Stop")
-                        break
+                for i in range(10):
+                    tap('t')
+                    time.sleep(0.5)
+                while not bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
+                    tap('t')
+                    time.sleep(1)
                     if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
                         print("Stop, maxed on accident")
                         break
-                    tap('t') #Upgrade Hotkey
-                    time.sleep(0.5)
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
             elif Settings.USE_DIO:
@@ -1880,6 +2089,9 @@ def main():
                 for i in range(13):
                     tap('t')
                     time.sleep(0.5)
+                while not bt.does_exist("StopUpgradeRukia.png", confidence=0.7, grayscale = False):
+                    tap('t')
+                    time.sleep(1)
 
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
@@ -2165,6 +2377,20 @@ def _osascript(script: str) -> bool:
 def focus_roblox():
     _osascript('tell application "Roblox" to activate')
     time.sleep(0.2)
+
+if "--test-disconnect" in sys.argv:
+    test_disconnect_detection(timeout_seconds=45, poll_seconds=0.4, run_on_disconnect=False)
+    sys.exit(0)
+
+if "--test-disconnect-reconnect" in sys.argv:
+    test_disconnect_detection(timeout_seconds=45, poll_seconds=0.4, run_on_disconnect=True)
+    sys.exit(0)
+
+if "--restart" in sys.argv:
+    on_disconnect()
+
+Thread(target=disconnect_checker, daemon=True).start()
+print(f"Launched with args {sys.argv}")
 
 # Auto-start logic stays the same
 if Settings.AUTO_START:
