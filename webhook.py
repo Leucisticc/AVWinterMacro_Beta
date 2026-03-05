@@ -68,7 +68,7 @@ def _build_embed_fields(
                 {"name": "🔁 Total Runs", "value": str(total), "inline": True},
                 {
                     "name": "💰 Rewards",
-                    "value": _format_number(rewards) if rewards is not None else f"about ~{210000 * total} collected",
+                    "value": _format_number(rewards) if rewards is not None else f"{_format_number(210000 * win_i)} collected",
                     "inline": True,
                 },
             ]

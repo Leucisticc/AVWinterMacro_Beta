@@ -25,7 +25,7 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.6.51'
+VERSION_N = '1.6.52'
 print(f"Version: {VERSION_N}")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
@@ -1099,7 +1099,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     # Tunables
     place_attempts = 3
     hotbar_wait_checks = 20
-    hotbar_poll_delay = 0.04
+    hotbar_poll_delay = 0.5
     white_ui = (255, 255, 255)
     hb_region = region if region is not None else HOTBAR_REGION
 
@@ -1471,7 +1471,60 @@ def _roblox_window_screenshot_for_webhook():
         print(f"[Webhook] Roblox window screenshot failed: {e}")
         return None
 
+def ensure_roblox_window_positioned():
+    target_left, target_top = 200, 100
+    target_width, target_height = 1100, 800
+
+    try:
+        window = wt.get_window("Roblox")
+        if window is None:
+            print("[Window] Roblox window not found; could not verify/position window.")
+            return False
+
+        left = int(getattr(window, "left", -1))
+        top = int(getattr(window, "top", -1))
+        width = int(getattr(window, "width", -1))
+        height = int(getattr(window, "height", -1))
+
+        already_positioned = (
+            left == target_left and
+            top == target_top and
+            width == target_width and
+            height == target_height
+        )
+        if already_positioned:
+            return True
+
+        wt.move_window(window, target_left, target_top)
+        wt.resize_window(window, target_width, target_height)
+        time.sleep(0.2)
+
+        check_window = wt.get_window("Roblox") or window
+        new_left = int(getattr(check_window, "left", -1))
+        new_top = int(getattr(check_window, "top", -1))
+        new_width = int(getattr(check_window, "width", -1))
+        new_height = int(getattr(check_window, "height", -1))
+
+        if (
+            new_left == target_left and
+            new_top == target_top and
+            new_width == target_width and
+            new_height == target_height
+        ):
+            print("[Window] Roblox window was not positioned correctly; corrected window position.")
+            return True
+
+        print(
+            f"[Window] Roblox window was not positioned correctly; correction failed "
+            f"(x={new_left}, y={new_top}, w={new_width}, h={new_height})."
+        )
+        return False
+    except Exception as e:
+        print(f"[Window] Roblox window was not positioned correctly; correction failed: {e}")
+        return False
+
 def main():
+    ensure_roblox_window_positioned()
     rabbit_pos = Settings.Unit_Positions.get("mirko")
     speed_pos =  Settings.Unit_Positions.get("speedwagon")
     start_of_run = datetime.now()
@@ -1640,7 +1693,7 @@ def main():
             # time.sleep(1)
             
             time.sleep(1)
-            click(754,400,delay=0.2,right_click=True) # Goes to Tak's card
+            click(760,375,delay=0.2,right_click=True) # Goes to Tak's card
             time.sleep(3)
             # Tak (timeout-safe): if not placed quickly, treat as failed run and restart.
             if not _buy_and_place_tak_with_timeout():
@@ -1662,7 +1715,7 @@ def main():
                 click(50,50,delay=0.1,right_click=True,dont_move=True)
             else:
                 click(Settings.CTM_NAMI_CARD[0], Settings.CTM_NAMI_CARD[1], delay =0.1, right_click=True) # Goes to nami's card
-            time.sleep(4)
+            time.sleep(7)
             # Nami (timeout-safe): if not placed quickly, treat as failed run and restart.
             if not _buy_and_place_nami_with_timeout():
                 print(f"[Nami] Failed to place within {PLACEMENT_TIMEOUT_SECONDS}s. Restarting run as failure.")
