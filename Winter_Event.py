@@ -33,7 +33,7 @@ PLACEMENT_TIMEOUT_SECONDS = 50
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "74897279689808909151980589387297" # Not in settings so u dont accidently share ur ps lol
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
 
@@ -1097,16 +1097,16 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     """
 
     # Tunables
-    place_attempts = 3
+    place_attempts = 15
     hotbar_wait_checks = 20
-    hotbar_poll_delay = 0.5
-    white_ui = (255, 255, 255)
+    hotbar_poll_delay = 0.04
+    white_ui = (235, 235, 235)
     hb_region = region if region is not None else HOTBAR_REGION
 
     # 1) Find and arm hotbar icon (bounded to hotbar region for speed)
     armed = False
     hb_img = f"Winter/{unit}_hb.png"
-    for _ in range(hotbar_wait_checks):
+    for i in range(hotbar_wait_checks):
         if click_image_center(
             hb_img,
             confidence=0.8,
