@@ -2,6 +2,7 @@ import time
 import pyautogui
 import os
 import webhook
+import subprocess
 from datetime import datetime
 from pynput import keyboard as pynput_keyboard
 from pynput.keyboard import Controller
@@ -11,8 +12,9 @@ from Tools import avMethods as avM
 
 failed_runs = 0
 failed_matches = 0
+#armin, sasuke, nami, orehime, erza
 
-MAKIMA_MEMORIA = True #Set to false if using rukias memoria
+RUNS_BEFORE_REJOIN = 250
 
 USE_MOUNT = True
 GEMS_PER_WIN = 150
@@ -20,31 +22,25 @@ VOTE_START_POS = (840,228)
 CLOSE_POS = (602,380)
 FOCUS_BOSS = (252,573)
 ABILITY_POS = (650,450)
-REPLAY_POS = (697,712)
+REPLAY_POS = (590,710) #(697,712)
 REPLAY_IMG = "Replay.png"
-USE_MOUSE_ABILITY_SPAM = True
-ABILITY_CLICK_POSITIONS = [
-    (615,770),(680,770),(750,770),(815,770),(885,770)
-]
 
-if USE_MOUNT:
-    UNITS = {
-        "aurin": {"name": "Aurin", "hotbar": (865, 835), "pos": (599, 461)},
-        "erza": {"name": "Erza", "hotbar": (790, 835), "pos": (480, 576)},
-        "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (546, 626)},
-        "sasuke": {"name": "Sasuke", "hotbar": (640, 835), "pos": (599, 574)},
-        "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (476, 523)},
-        "setup": {"name": "setup", "hotbar": (560, 835), "pos": (745, 547)},
-    }
-else:
-    UNITS = {
-        "aurin": {"name": "Aurin", "hotbar": (865, 835), "pos": (599, 461)},
-        "erza": {"name": "Erza", "hotbar": (790, 835), "pos": (424, 553)},
-        "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (546, 626)},
-        "sasuke": {"name": "Sasuke", "hotbar": (640, 835), "pos": (572, 571)},
-        "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (432, 527)},
-        "setup": {"name": "setup", "hotbar": (560, 835), "pos": (745, 547)},
-    }
+#560,640,710,790,865
+UNITS = {
+    "erza": {"name": "Erza", "hotbar": (790, 835), "pos": (630, 534)},
+    "erza2": {"name": "Erza2", "hotbar": (790, 835), "pos": (630, 500)},
+    # "orehime": {"name": "Orehime", "hotbar": (790, 835), "pos": (845, 695)},
+    # "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (800, 645)},
+    "skele": {"name": "Skele", "hotbar": (710, 835), "pos": (750, 600)},
+    
+    "aurin": {"name": "Aurin", "hotbar": (865, 835), "pos": (775, 422)},
+    # "sasuke": {"name": "Sasuke", "hotbar": (560, 835), "pos": (801, 562)},
+    "sasuke": {"name": "Sasuke", "hotbar": (640, 835), "pos": (787, 550)},
+    # "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (660, 491)},
+    "nami": {"name": "Nami", "hotbar": (560, 835), "pos": (662, 491)},
+    "setup": {"name": "setup", "hotbar": (560, 835), "pos": (745, 547)},
+}
+
 
 keyboard_controller = Controller()
 pyautogui.FAILSAFE = False
@@ -68,6 +64,74 @@ listener.start()
 
 
 # AV Functions
+def chord(keys=("a", "s", "d", "f", "g"), hold=0.03):
+    for k in keys:
+        keyboard_controller.press(k)
+    time.sleep(hold)
+    for k in reversed(keys):
+        keyboard_controller.release(k)
+
+def spam_chord_for_duration(keys=("[", "]", ";", "'", ","), duration=6.0, hold=0.02, gap=0.005):
+    end_time = time.perf_counter() + duration
+    while time.perf_counter() < end_time:
+        chord(keys, hold=hold)
+        if gap > 0:
+            time.sleep(gap)
+            
+def _seen_pixel_from_screenshot(img, x: int, y: int, sample_half: int = 1):
+    # Map pyautogui coords -> screenshot pixel coords using THIS screenshot
+    sw, sh = pyautogui.size()
+    iw, ih = img.size
+    sx = iw / sw
+    sy = ih / sh
+
+    xp = int(x * sx)
+    yp = int(y * sy)
+
+    w, h = img.size
+    left = max(0, xp - sample_half)
+    top = max(0, yp - sample_half)
+    right = min(w - 1, xp + sample_half)
+    bottom = min(h - 1, yp + sample_half)
+
+    px = []
+    for yy in range(top, bottom + 1):
+        for xx in range(left, right + 1):
+            p = img.getpixel((xx, yy))
+            if isinstance(p, tuple) and len(p) >= 3:
+                px.append((p[0], p[1], p[2]))
+
+    if not px:
+        return (0, 0, 0)
+
+    # median per channel
+    rs = sorted(p[0] for p in px)
+    gs = sorted(p[1] for p in px)
+    bs = sorted(p[2] for p in px)
+    mid = len(px) // 2
+    return (rs[mid], gs[mid], bs[mid])
+
+def _safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
+    """
+    Best-effort screenshot helper for macOS capture flakiness.
+    Returns a PIL image or None.
+    """
+    for _ in range(max(1, retries)):
+        try:
+            return pyautogui.screenshot()
+        except Exception as e:
+            last_error = e
+            time.sleep(retry_delay)
+    print(f"[screenshot] failed after retries: {last_error}")
+    return None
+
+def pixel_matches_seen(x: int, y: int, rgb: tuple[int, int, int], tol: int = 20, sample_half: int = 1) -> bool:
+    img = _safe_screenshot()
+    if img is None:
+        return False
+    r, g, b = _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
+    return (abs(r - rgb[0]) <= tol and abs(g - rgb[1]) <= tol and abs(b - rgb[2]) <= tol)
+
 def click(x, y=None, delay=None, right_click=False, dont_move=False):
     # Allow click((x, y)) and click(x, y)
     if y is None:
@@ -95,29 +159,15 @@ def tap(key, hold=0.04, post_delay=0.03):
     except Exception:
         pyautogui.press(str(key))
     time.sleep(post_delay)
-
-def chord(keys=("a", "s", "d", "f", "g"), hold=0.03):
-    for k in keys:
-        keyboard_controller.press(k)
-    time.sleep(hold)
-    for k in reversed(keys):
-        keyboard_controller.release(k)
-
-def spam_chord_for_duration(keys=("a", "s", "d", "f", "g"), duration=6.0, hold=0.02, gap=0.005):
-    end_time = time.perf_counter() + duration
-    while time.perf_counter() < end_time:
-        chord(keys, hold=hold)
-        if gap > 0:
-            time.sleep(gap)
-
     
 
-def place_unit(unit, click_delay=0.3, step_delay=0.1):
+def place_unit(unit, click_delay=0.4, step_delay=0.1,close=False):
     click(unit["hotbar"], delay=click_delay)
     time.sleep(step_delay)
     click(unit["pos"], delay=click_delay)
     time.sleep(step_delay)
-    click(CLOSE_POS, delay=click_delay)
+    if close:
+        click(CLOSE_POS, delay=click_delay)
 
 def wait_start(delay: int | None = None):
     i = 0
@@ -154,14 +204,17 @@ def slow_rts(): # Returns to spawn
         click(loc[0], loc[1], delay =1)
         time.sleep(0.2)
 
-    print("❌ Start screen NOT detected (timeout)")
+    # print("❌ Start screen NOT detected (timeout)")
 
 def set_up_raid():
     wait_start()
     print("Setting up Raid.")
     click(398,160,delay=0.5)
     time.sleep(1)
-    click(438,532,delay=0.5)
+    click(398,160,delay=0.5)
+    time.sleep(1)
+    # click(438,532,delay=0.5)
+    click(482,462,delay=0.5) #Close objectives
     time.sleep(1)
     click(VOTE_START_POS)
     time.sleep(0.5)
@@ -173,18 +226,27 @@ def set_up_raid():
     time.sleep(1)
     click(749,874,delay=0.5)
     time.sleep(1)
-    tap('o',hold=1)
+    tap('o',hold=1.5)
     time.sleep(0.5)
+    quick_rts()
+    time.sleep(0.5)
+    avM.restart_match()
 
 def go_to_lobby():
     print("Going back to lobby.")
-    time.sleep(2)
+    time.sleep(1)
+    click(1184,293,delay=0.8)
+    time.sleep(1)
     click(218,878,delay=0.8)
     time.sleep(0.5)
+    click(1180,587,delay=0.2)
+    time.sleep(1)
     click(789,502,delay=0.8)
     time.sleep(0.5)
     click(677,568,delay=0.8)
+    time.sleep(10)
     while not bt.does_exist("AreaIcon.png", confidence=0.7, grayscale=False):
+        click(1086,318,delay=0.5)
         time.sleep(1)
 
 def go_to_raid():
@@ -210,13 +272,33 @@ def go_to_raid():
     click(809,716,delay=0.5)
     time.sleep(1)
     click(286,735,delay=0.5)
-
-def rejoin_raid():
+    
+def rejoin_raid(total_runs):
     go_to_lobby()
     go_to_raid()
     set_up_raid()
+    return 0
+
+def enable_auto_start():
+    print("Enabling Auto Start")
+    click(1184,293,delay=0.2)
+    time.sleep(1)
+    click(220,879,delay=0.2)
+    time.sleep(1)
+    if pixel_matches_seen(1180,587,(33,15,24),tol=20):
+        click(1180,587,delay=0.2)
+        time.sleep(1)
+        print("Enabled.")
+    else:
+        print("Already enabled.")
+    click(1223,269,delay=0.2)
+    time.sleep(1)
+    click(750,286,delay=0.2)
     
-def wait_end(delay: float = 0.5, timeout: float = 180.0):
+        
+    
+    click(1180,587)
+def wait_end(total_runs, delay: float = 0.5, timeout: float = 180.0):
     global failed_runs
     global failed_matches
     end_time = time.time() + timeout
@@ -224,28 +306,25 @@ def wait_end(delay: float = 0.5, timeout: float = 180.0):
         try:
             if bt.does_exist("Victory.png", confidence=0.7, grayscale=False): #Won
                 print("✅ Win detected")
-                return "win"
+                failed_runs = 0
+                return "win", total_runs
             elif bt.does_exist("Failed.png",confidence=0.7, grayscale=False): #Failed
                 print("❌ Failure detected")
                 failed_runs+=1
-                click(REPLAY_POS)
-                time.sleep(0.5)
-                click(REPLAY_POS)
-                quick_rts()
-                slow_rts()
                 if failed_runs>=2:
                     failed_matches+=1
+                    failed_runs = 0
                     if failed_matches>=2:
                         kill()
                     else:
-                        rejoin_raid()
-                return "fail"
+                        total_runs = rejoin_raid(total_runs)
+                return "fail", total_runs
                 
         except Exception as e:
             print(f"replay detect error: {e}")
         time.sleep(delay)
     print("❌ Replay button NOT detected (timeout)")
-    return "timeout"
+    return "timeout", total_runs
 
 def _roblox_window_screenshot_for_webhook():
     try:
@@ -257,7 +336,7 @@ def _roblox_window_screenshot_for_webhook():
         print(f"[Webhook] Roblox window screenshot failed: {e}")
         return None
 
-def send_run_webhook(session_start: datetime, wins: int, losses: int):
+def send_run_webhook(session_start: datetime, wins: int, losses: int, alert_text: str | None = None):
     runtime = str(datetime.now() - session_start).split(".")[0]
     rewards = wins * GEMS_PER_WIN
     screenshot = _roblox_window_screenshot_for_webhook()
@@ -268,137 +347,166 @@ def send_run_webhook(session_start: datetime, wins: int, losses: int):
         lose=losses,
         rewards=rewards,
         img=screenshot,
+        alert_text=alert_text,
     )
 
+def ensure_roblox_window_positioned():
+    target_left, target_top = 200, 100
+    target_width, target_height = 1100, 800
 
+    try:
+        window = wt.get_window("Roblox")
+        if window is None:
+            print("[Window] Roblox window not found; could not verify/position window.")
+            return False
 
-def mini_click_test(cycles=2, pre_delay=3, click_delay=0.08, step_delay=0.05):
-    print(f"Mini click test starts in {pre_delay}s...")
-    time.sleep(pre_delay)
+        left = int(getattr(window, "left", -1))
+        top = int(getattr(window, "top", -1))
+        width = int(getattr(window, "width", -1))
+        height = int(getattr(window, "height", -1))
 
-    for cycle in range(1, cycles + 1):
-        print(f"Cycle {cycle}/{cycles}")
-        for unit in UNITS.values():
-            click(unit["pos"], delay=click_delay)
-            print(f"Clicked {unit['name']} @ {unit['pos']}")
-            time.sleep(step_delay)
+        already_positioned = (
+            left == target_left and
+            top == target_top and
+            width == target_width and
+            height == target_height
+        )
+        if already_positioned:
+            return True
 
-    print("Mini click test complete.")
+        wt.move_window(window, target_left, target_top)
+        wt.resize_window(window, target_width, target_height)
+        time.sleep(0.2)
 
+        check_window = wt.get_window("Roblox") or window
+        new_left = int(getattr(check_window, "left", -1))
+        new_top = int(getattr(check_window, "top", -1))
+        new_width = int(getattr(check_window, "width", -1))
+        new_height = int(getattr(check_window, "height", -1))
+
+        if (
+            new_left == target_left and
+            new_top == target_top and
+            new_width == target_width and
+            new_height == target_height
+        ):
+            print("[Window] Roblox window was not positioned correctly; corrected window position.")
+            return True
+
+        print(
+            f"[Window] Roblox window was not positioned correctly; correction failed "
+            f"(x={new_left}, y={new_top}, w={new_width}, h={new_height})."
+        )
+        return False
+    except Exception as e:
+        print(f"[Window] Roblox window was not positioned correctly; correction failed: {e}")
+        return False
+
+def _osascript(script: str) -> bool:
+    try:
+        subprocess.run(["osascript", "-e", script], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+    
+
+def focus_roblox():
+    _osascript('tell application "Roblox" to activate')
+    time.sleep(0.2)
+    
 def cid_farm():
     print("Starting Cid Macro.")
     print("Press K to stop.")
-    time.sleep(3)
+    time.sleep(2)
+    ensure_roblox_window_positioned()
 
     # Focus game first.
-    click(599, 461, delay=0.3)
-    time.sleep(0.1)
-    
+    # click(599, 461, delay=0.3)
+    # time.sleep(0.5)
+    while not avM.get_wave() == 0:
+        avM.restart_match()
     session_start = datetime.now()
     total_runs = 0
     wins = 0
     losses = 0
     while True:
+        if total_runs>= RUNS_BEFORE_REJOIN:
+            total_runs = rejoin_raid(total_runs)
         click(REPLAY_POS)
         time.sleep(0.2)
         click(REPLAY_POS)
-        print(f"Total Runs: {total_runs}")
-        wait_start()
-        if USE_MOUNT:
-            time.sleep(1)
-            tap('v')
-            click(VOTE_START_POS)
+        if total_runs == 0:
+            wait_start()
+            quick_rts()
             time.sleep(0.5)
-            place_unit(UNITS["aurin"])
-            time.sleep(0.5)
-            place_unit(UNITS["sasuke"])
-            time.sleep(2.5)
-            place_unit(UNITS["nami"])
-            time.sleep(0.5)
-            place_unit(UNITS["erza"])
-            time.sleep(3)
-            place_unit(UNITS["skele"])
-            time.sleep(0.5)
-            click(UNITS["sasuke"]["pos"], delay=0.3)
-            time.sleep(0.3)
-            tap('z')
-            time.sleep(0.3)
-            click(FOCUS_BOSS, delay=0.3)
-            time.sleep(0.3)
-            click(CLOSE_POS)
-            time.sleep(0.5)
-            click(UNITS["skele"]["pos"], delay=0.3)
+            # click(480,544,right_click=True,delay=0.5)
+            click(523,544,right_click=True,delay=0.5)
             time.sleep(2)
-            click(ABILITY_POS)
-            time.sleep(0.8)
-            spam_chord_for_duration(duration=8, hold=0.02, gap=0.03)
-            click(CLOSE_POS)
-            time.sleep(0.3)
-            click(UNITS["erza"]["pos"], delay=0.3)
-            time.sleep(0.3)
-            click(ABILITY_POS)
-            if MAKIMA_MEMORIA:
-                time.sleep(0.5)
-            else:
-                time.sleep(6)
-            click(1026,696)
-            time.sleep(0.2)
-            click(1026,696)
-            time.sleep(0.5)
-            click(750,553)
-            time.sleep(0.5)
-            click(1137,292)
-        else:
             click(VOTE_START_POS)
-            time.sleep(0.5)
-            place_unit(UNITS["aurin"])
-            time.sleep(0.5)
-            place_unit(UNITS["sasuke"])
-            time.sleep(2.5)
-            place_unit(UNITS["nami"])
-            time.sleep(0.5)
-            place_unit(UNITS["erza"])
-            time.sleep(3)
-            place_unit(UNITS["skele"])
-            time.sleep(0.5)
-            click(UNITS["sasuke"]["pos"], delay=0.3)
-            time.sleep(0.3)
-            tap('z')
-            time.sleep(0.3)
-            click(FOCUS_BOSS, delay=0.3)
-            time.sleep(0.3)
-            click(CLOSE_POS)
-            time.sleep(0.5)
-            click(UNITS["skele"]["pos"], delay=0.3)
-            time.sleep(1)
-            click(ABILITY_POS)
-            time.sleep(1.8)
-            spam_chord_for_duration(duration=7, hold=0.02, gap=0.03)
-            click(CLOSE_POS)
-            time.sleep(0.3)
-            click(UNITS["erza"]["pos"], delay=0.3)
-            time.sleep(0.3)
-            click(ABILITY_POS)
-            time.sleep(6)
-            click(1026,696)
-            time.sleep(0.2)
-            click(1026,696)
-            time.sleep(0.5)
-            click(750,553)
-            time.sleep(0.5)
-            click(1137,292)
-        
-        time.sleep(5)
-        end_state = wait_end()
+        time.sleep(0.2)
+        place_unit(UNITS["aurin"])
+        time.sleep(0.5)
+        place_unit(UNITS["sasuke"])
+        time.sleep(0.5)
+        place_unit(UNITS["nami"])
+        time.sleep(0.5)
+        place_unit(UNITS["erza"])
+        time.sleep(0.5)
+        click(UNITS["sasuke"]["pos"], delay=0.3)
+        time.sleep(0.3)
+        tap('z')
+        time.sleep(1.5)
+        click(FOCUS_BOSS, delay=0.3)
+        # time.sleep(0.5)
+        # click(CLOSE_POS)
+        time.sleep(1)
+        place_unit(UNITS["skele"],close=False)
+        time.sleep(1)
+        click(ABILITY_POS)
+        time.sleep(3)
+        spam_chord_for_duration(duration=4, hold=0.02, gap=0.03)
+        time.sleep(0.2)
+        click(CLOSE_POS)
+        time.sleep(0.5)
+        click(UNITS["erza"]["pos"], delay=0.3)
+        time.sleep(0.5) #Changed when using alucard div and makima on erza
+        click(ABILITY_POS)
+        time.sleep(0.7)
+        click(1026,696)
+        # time.sleep(0.3)
+        # click(1026,696)
+        # time.sleep(0.5)
+        # click(750,553)
+        time.sleep(0.4)
+        click(1137,292)
+        time.sleep(0.4)
+        click(CLOSE_POS)
+        time.sleep(1)
+        place_unit(UNITS["erza2"])
+        time.sleep(3.5)
+        click(ABILITY_POS)
+        time.sleep(2.5)
+        click(750,696)
+        time.sleep(0.4)
+        click(1137,292)
+        end_state, total_runs = wait_end(total_runs)
         if end_state == "win":
+            if total_runs==0:
+                enable_auto_start()
             wins += 1
             total_runs += 1
             send_run_webhook(session_start=session_start, wins=wins, losses=losses)
-            print(f"Runs: {total_runs} | Wins: {wins} | Losses: {losses} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
+            print(f"Runs: {wins+losses} | Wins: {wins} | Losses: {losses} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
         elif end_state == "fail":
             losses += 1
             total_runs += 1
-            send_run_webhook(session_start=session_start, wins=wins, losses=losses)
+            send_run_webhook(
+                session_start=session_start,
+                wins=wins,
+                losses=losses,
+                alert_text=f"@everyone Cid Act 2 lost a run. Total losses: {losses}",
+            )
             print("Run failed; wins not incremented.")
         else:
             print("Replay not detected; skipping win stat update for this cycle.")

@@ -256,8 +256,8 @@
     "MONARCH_AINZ_PLACEMENT": true,
     "MAX_UPG_AINZ_PLACEMENT": false,
     "AINZ_PLACEMENT_MOVE_PNG": "Winter/YOUR_MOVE,png",
-    "num_runs": 0,
+    "num_runs": 2,
     "losses": 0,
-    "wins": 0,
-    "runtime": "0:00:00"
+    "wins": 2,
+    "runtime": "1:14:09"
 }
