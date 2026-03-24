@@ -3,6 +3,8 @@ import pyautogui
 import os
 import webhook
 import subprocess
+import cv2
+import numpy as np
 from pathlib import Path
 from datetime import datetime
 from pynput import keyboard as pynput_keyboard
@@ -17,9 +19,9 @@ failed_matches = 0
 
 RUNS_BEFORE_REJOIN = 250
 
-AUTO_SETUP_CAM = True
-ainz_unit = 'rei'
-
+AUTO_SETUP_CAM = False
+ainz_unit = 'rei' #Change to your units name as you would search for it
+TWO_WB = False
 
 AINZ_SPELLS = False
 COINS_PER_WIN = 150
@@ -33,7 +35,14 @@ REPLAY_IMG = "Replay.png"
 
 MODIFIER_MATCH_CONFIDENCE = 0.6
 MODIFIER_SELECTION_REGION = (228,271,1045,360)
-MAX_NEGATIVE_MODIFIERS = 3
+MODIFIER_CARD_REGIONS: list[tuple[int, int, int, int]] = [
+    (250, 315, 289, 210),
+    (589, 328, 311, 208),
+    (954, 331, 313, 213),
+]
+USE_CARD_MODIFIER_SELECTOR = True
+USE_FAST_MODIFIER_CARD_SELECTOR = True
+MAX_NEGATIVE_MODIFIERS = 2
 MODIFIER_SELECTION_TIMEOUT = 6.0
 
 MODIFIERS = {
@@ -97,6 +106,11 @@ MODIFIERS = {
         "image": "Bleach_Dungeon/Range.png",
         "alignment": "positive",
     },
+    "planningahead": {
+        "label": "Planning Ahead",
+        "image": "Bleach_Dungeon/PlanningAhead.png",
+        "alignment": "positive",
+    },
     "strong": {
         "label": "Strong",
         "image": "Bleach_Dungeon/Strong.png",
@@ -106,37 +120,18 @@ MODIFIERS = {
 
 POSITIVE_MODIFIERS = [name for name, data in MODIFIERS.items() if data["alignment"] == "positive"]
 NEGATIVE_MODIFIERS = [name for name, data in MODIFIERS.items() if data["alignment"] == "negative"]
+MODIFIER_TEMPLATE_CACHE: dict[str, dict] = {}
 
 # Edit these lists to change what the bot prefers at each point in the run.
 MODIFIER_PRIORITY_BY_PHASE = {
-    "early": ["harvest", "champions", "uncommon", "common", "damage", "press", "range", "slayer", "cooldown", "dodge", "fast", "strong"],
-    "late": ["harvest", "champions", "strong", "fast", "dodge", "uncommon", "common", "press", "damage", "slayer", "cooldown", "range"],
+    "early": ["harvest", "champions", "uncommon", "common", "damage", "press", "range", "slayer", "cooldown", "dodge", "fast", "strong", "planningahead"],
+    "late": ["harvest", "champions", "dodge", "strong", "uncommon", "common", "press", "damage", "slayer", "cooldown", "range", "fast", "planningahead"],
 }
 
 MODIFIER_PHASE_BY_WAVE = {
     "early": range(0, 21),
     "late": range(21, 31),
 }
-
-# UNITS = {
-#     "nami": {"name": "Erza", "hotbar": (985, 835), "pos": (630, 534)},
-#     "shanks": {"name": "Shanks", "hotbar": (790, 835), "pos": (630, 534)},
-#     "ainz": {"name": "Ainz", "hotbar": (790, 835), "pos": (630, 500)},
-#     "erza": {"name": "Erza", "hotbar": (710, 835), "pos": (750, 600)},
-#     "wb": {"name": "WB", "hotbar": (640, 835), "pos": (787, 550)},
-#     "alucard": {"name": "Alucard", "hotbar": (560, 835), "pos": (662, 491)},
-# }
-
-
-# UNITS = {
-#     "ainzunit": {"name": "Reimu", "hotbar": (1000, 835), "pos": (924, 578)},
-#     "nami": {"name": "Nami", "hotbar": (1000, 835), "pos": (648, 354)},
-#     "shanks": {"name": "Shanks", "hotbar": (900, 835), "pos": (870, 604)},
-#     "ainz": {"name": "Ainz", "hotbar": (800, 835), "pos": (810, 597)},
-#     "erza": {"name": "Erza", "hotbar": (700, 835), "pos": (853, 577)},
-#     "wb": {"name": "WB", "hotbar": (600, 835), "pos": (1070, 590)},
-#     "alucard": {"name": "Alucard", "hotbar": (500, 835), "pos": (886, 577)},
-# }
 
 UNITS = {
     "ainzunit": {"name": "Reimu", "hotbar": (1000, 835), "pos": (924, 578)},
@@ -145,6 +140,7 @@ UNITS = {
     "ainz": {"name": "Ainz", "hotbar": (800, 835), "pos": (810, 597)},
     "rukia": {"name": "Rukia", "hotbar": (700, 835), "pos": (853, 577)},
     "wb": {"name": "WB", "hotbar": (600, 835), "pos": (1070, 590)},
+    "wb2": {"name": "WB2", "hotbar": (600, 835), "pos": (696, 497)},
     "alucard": {"name": "Alucard", "hotbar": (500, 835), "pos": (886, 577)},
 }
 
@@ -413,6 +409,78 @@ def get_current_modifier_wave(previous_wave: int | None) -> int | None:
 
     return previous_wave + 1
 
+def _screenshot_to_screen_coords(x: int, y: int, img_size: tuple[int, int]) -> tuple[int, int]:
+    sw, sh = pyautogui.size()
+    iw, ih = img_size
+    if iw <= 0 or ih <= 0:
+        return int(x), int(y)
+
+    scale_x = sw / iw
+    scale_y = sh / ih
+    return int(x * scale_x), int(y * scale_y)
+
+def _load_modifier_templates():
+    if MODIFIER_TEMPLATE_CACHE:
+        return MODIFIER_TEMPLATE_CACHE
+
+    for modifier_name, modifier in MODIFIERS.items():
+        template_path = _resolve_image_path(modifier["image"])
+        template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+        if template is None:
+            print(f"[modifier] failed to load template: {modifier['image']}")
+            continue
+
+        MODIFIER_TEMPLATE_CACHE[modifier_name] = {
+            "modifier": modifier,
+            "template": template,
+            "width": template.shape[1],
+            "height": template.shape[0],
+        }
+
+    return MODIFIER_TEMPLATE_CACHE
+
+def _capture_modifier_screen():
+    screenshot = _safe_screenshot()
+    if screenshot is None:
+        return None
+    return cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+def _detect_modifier_in_region_fast(screen_img, region) -> tuple[str, dict, tuple[int, int], float] | None:
+    search_region = _screen_region_to_screenshot_region(region)
+    if search_region is None:
+        return None
+
+    rx, ry, rw, rh = search_region
+    crop = screen_img[ry:ry + rh, rx:rx + rw]
+    if crop.size == 0:
+        return None
+
+    best_match = None
+    for modifier_name, template_data in _load_modifier_templates().items():
+        template = template_data["template"]
+        th, tw = template.shape[:2]
+        if crop.shape[0] < th or crop.shape[1] < tw:
+            continue
+
+        result = cv2.matchTemplate(crop, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        if max_val < MODIFIER_MATCH_CONFIDENCE:
+            continue
+
+        center = (
+            rx + max_loc[0] + (tw // 2),
+            ry + max_loc[1] + (th // 2),
+        )
+        if best_match is None or max_val > best_match[3]:
+            best_match = (
+                modifier_name,
+                template_data["modifier"],
+                center,
+                max_val,
+            )
+
+    return best_match
+
 def find_visible_modifier(
     phase: str | None = None,
     wave: int | None = None,
@@ -443,25 +511,35 @@ def select_modifier(
 
     exit_index = len(priority_modifiers) - 2 if len(priority_modifiers) > 3 else None
 
-    print("> Cycling through modifiers...")
-    
-    for index, modifier_name in enumerate(priority_modifiers):
-        if exit_index is not None and index >= exit_index:
-            print("No modifiers detected by the final 3 priority entries. Assuming selection screen is gone.")
-            return None
+    print("> Cycling through modifiers.")
 
-        modifier = get_modifier(modifier_name)
-        if is_negative_modifier(modifier_name) and negative_count >= max_negative_modifiers:
-            print(f"Modifier visible but skipped: {modifier['label']} (negative cap reached).")
-            continue
+    for allow_negative_overflow in (False, True):
+        if allow_negative_overflow:
+            print("No eligible modifiers found. Falling back to highest-priority visible modifier.")
 
-        if click_modifier(modifier_name):
-            print(
-                f"Selected modifier: {modifier['label']} "
-                f"({modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
-            )
-            return modifier_name
-        # print(f"Modifier not visible: {modifier['label']}")
+        for index, modifier_name in enumerate(priority_modifiers):
+            if exit_index is not None and index >= exit_index:
+                if allow_negative_overflow:
+                    break
+                print("No modifiers detected by the final 3 priority entries. Assuming selection screen is gone.")
+                return None
+
+            modifier = get_modifier(modifier_name)
+            if (
+                not allow_negative_overflow
+                and is_negative_modifier(modifier_name)
+                and negative_count >= max_negative_modifiers
+            ):
+                print(f"Modifier visible but skipped: {modifier['label']} (negative cap reached).")
+                continue
+
+            if click_modifier(modifier_name):
+                print(
+                    f"Selected modifier: {modifier['label']}\n"
+                    f"({modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
+                )
+                return modifier_name
+            # print(f"Modifier not visible: {modifier['label']}")
     return None
 
 def click_modifier(modifier_name: str) -> bool:
@@ -482,15 +560,183 @@ def click_modifier(modifier_name: str) -> bool:
     time.sleep(0.12)
     return True
 
+def detect_modifier_in_region(region) -> tuple[str, dict, tuple[int, int]] | None:
+    for modifier_name, modifier in MODIFIERS.items():
+        cx, cy, _ = find_image_center(
+            modifier["image"],
+            confidence=MODIFIER_MATCH_CONFIDENCE,
+            grayscale=False,
+            region=region,
+        )
+        if cx is None or cy is None:
+            continue
+        return modifier_name, modifier, (cx, cy)
+    return None
+
+def select_modifier_from_cards_fast(
+    phase: str | None = None,
+    wave: int | None = None,
+    negative_count: int = 0,
+    max_negative_modifiers: int = MAX_NEGATIVE_MODIFIERS,
+) -> str | None:
+    if len(MODIFIER_CARD_REGIONS) != 3:
+        return select_modifier(
+            phase=phase,
+            wave=wave,
+            negative_count=negative_count,
+            max_negative_modifiers=max_negative_modifiers,
+        )
+
+    time.sleep(1.5)
+    screen_img = _capture_modifier_screen()
+    if screen_img is None:
+        return None
+
+    priority_modifiers = get_modifier_priority(phase=phase, wave=wave)
+    visible_cards = []
+
+    for index, region in enumerate(MODIFIER_CARD_REGIONS, start=1):
+        detected = _detect_modifier_in_region_fast(screen_img, region)
+        if detected is None:
+            print(f"Modifier card {index}: no known modifier detected.")
+            continue
+
+        modifier_name, modifier, center, score = detected
+        visible_cards.append((modifier_name, modifier, center))
+        print(f"Modifier card {index}: detected {modifier['label']} ({score:.2f}).")
+
+    if not visible_cards:
+        print("No visible modifier cards detected in the configured regions.")
+        return None
+
+    print("Detected modifiers:", ", ".join(card_modifier["label"] for _, card_modifier, _ in visible_cards))
+
+    for allow_negative_overflow in (False, True):
+        if allow_negative_overflow:
+            print("No eligible modifiers found. Falling back to highest-priority visible modifier.")
+
+        for modifier_name in priority_modifiers:
+            if (
+                not allow_negative_overflow
+                and is_negative_modifier(modifier_name)
+                and negative_count >= max_negative_modifiers
+            ):
+                continue
+
+            for visible_name, visible_modifier, center in visible_cards:
+                if visible_name != modifier_name:
+                    continue
+
+                cx, cy = _screenshot_to_screen_coords(center[0], center[1], (screen_img.shape[1], screen_img.shape[0]))
+                click(cx, cy, delay=0.1)
+                time.sleep(0.12)
+                print(
+                    f"Selected modifier: {visible_modifier['label']} "
+                    f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
+                )
+                return visible_name
+
+    print("Visible modifiers found, but none matched the current eligible priority list.")
+    return None
+
+def select_modifier_from_cards(
+    phase: str | None = None,
+    wave: int | None = None,
+    negative_count: int = 0,
+    max_negative_modifiers: int = MAX_NEGATIVE_MODIFIERS,
+) -> str | None:
+    if USE_FAST_MODIFIER_CARD_SELECTOR:
+        return select_modifier_from_cards_fast(
+            phase=phase,
+            wave=wave,
+            negative_count=negative_count,
+            max_negative_modifiers=max_negative_modifiers,
+        )
+
+    if len(MODIFIER_CARD_REGIONS) != 3:
+        return select_modifier(
+            phase=phase,
+            wave=wave,
+            negative_count=negative_count,
+            max_negative_modifiers=max_negative_modifiers,
+        )
+
+    priority_modifiers = get_modifier_priority(phase=phase, wave=wave)
+    visible_cards = []
+
+    for index, region in enumerate(MODIFIER_CARD_REGIONS, start=1):
+        detected = detect_modifier_in_region(region)
+        if detected is None:
+            print(f"Modifier card {index}: no known modifier detected.")
+            continue
+
+        modifier_name, modifier, center = detected
+        visible_cards.append((modifier_name, modifier, center))
+        print(f"Modifier card {index}: detected {modifier['label']}.")
+
+    if not visible_cards:
+        print("No visible modifier cards detected in the configured regions.")
+        return None
+
+    print("Detected modifiers:", ", ".join(card_modifier["label"] for _, card_modifier, _ in visible_cards))
+
+    for allow_negative_overflow in (False, True):
+        if allow_negative_overflow:
+            print("No eligible modifiers found. Falling back to highest-priority visible modifier.")
+
+        for modifier_name in priority_modifiers:
+            if (
+                not allow_negative_overflow
+                and is_negative_modifier(modifier_name)
+                and negative_count >= max_negative_modifiers
+            ):
+                continue
+
+            for visible_name, visible_modifier, center in visible_cards:
+                if visible_name != modifier_name:
+                    continue
+
+                cx, cy = _retina_to_screen_coords(center[0], center[1])
+                click(cx, cy, delay=0.1)
+                time.sleep(0.12)
+                print(
+                    f"Selected modifier: {visible_modifier['label']} "
+                    f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
+                )
+                return visible_name
+
+    print("Visible modifiers found, but none matched the current eligible priority list.")
+    return None
+
+def choose_modifier(
+    phase: str | None = None,
+    wave: int | None = None,
+    negative_count: int = 0,
+    max_negative_modifiers: int = MAX_NEGATIVE_MODIFIERS,
+) -> str | None:
+    if USE_CARD_MODIFIER_SELECTOR and len(MODIFIER_CARD_REGIONS) == 3:
+        return select_modifier_from_cards(
+            phase=phase,
+            wave=wave,
+            negative_count=negative_count,
+            max_negative_modifiers=max_negative_modifiers,
+        )
+
+    return select_modifier(
+        phase=phase,
+        wave=wave,
+        negative_count=negative_count,
+        max_negative_modifiers=max_negative_modifiers,
+    )
+
 def wait_for_safe_action_wave(phase: str = "early", delay: float = 0.5) -> int | None:
     while True:
         wave = avM.get_wave()
         # print(wave)
+
         if wave == -1:
-            selected = select_modifier(phase=phase)
-            # if selected:
-            #     print(f"Selected: {selected}")
-            time.sleep(delay)
+            choose_modifier(phase=phase)
+            time.sleep(2)
             continue
 
         if wave is not None and wave >= 0 and (wave + 1) % 3 == 0:
@@ -619,7 +865,7 @@ def handle_modifier_selection(
     deadline = time.time() + timeout
 
     while time.time() < deadline:
-        selected = select_modifier(wave=phase_wave, negative_count=negative_count)
+        selected = choose_modifier(wave=phase_wave, negative_count=negative_count)
         if selected is not None:
             if is_negative_modifier(selected):
                 negative_count += 1
@@ -1015,6 +1261,8 @@ def bleach_dungeon():
         do_action(upgrade, UNITS['alucard'])
         do_action(ainz_setup_spells)
         do_action(fully_upgrade, ability=True)
+        if TWO_WB:
+            do_action(place_unit, UNITS["wb2"])
         do_action(upgrade, UNITS['ainz'], close=True)
 
         negative_modifier_count = wait_for_wave_30_and_modifiers(

@@ -25,7 +25,7 @@ Settings = Cur_Settings()
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
 
-VERSION_N = '1.6.70'
+VERSION_N = '1.6.71'
 print(f"Version: {VERSION_N}")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
