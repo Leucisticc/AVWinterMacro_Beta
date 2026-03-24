@@ -19,6 +19,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(PROJECT_ROOT, "Resources", "debug_shots")
 os.makedirs(OUT_DIR, exist_ok=True)
 
+SAVE_DEBUG_IMAGES_ENABLED = False
 CROP_HALF = 20
 ZOOM_SCALE = 6
 HOVER_ON = False
@@ -182,6 +183,14 @@ def save_debug_images():
     rgb, (x_px, y_px), (sx, sy) = sample_from_screenshot(full_img, x_pt, y_pt, sample_half=2)
     hx = rgb_to_hex(rgb)
 
+    print("\n" + "-" * 60)
+    print(f"Saved @ ({x_pt},{y_pt}) -> px ({x_px},{y_px})  RGB={rgb} {hx}  Scale={sx:.2f},{sy:.2f}")
+
+    if not SAVE_DEBUG_IMAGES_ENABLED:
+        print("[CAPTURE] Image saving disabled")
+        print("-" * 60)
+        return
+
     full_annotated = full_img.copy()
     draw = ImageDraw.Draw(full_annotated)
     draw_cross(draw, x_px, y_px, size=30, width=4)
@@ -212,11 +221,9 @@ def save_debug_images():
     zoom_path = os.path.join(OUT_DIR, f"zoom_{t}_rgb{rgb}_{hx}.png")
     zoom.save(zoom_path)
 
-    print("\n" + "-" * 60)
-    print(f"Saved @ ({x_pt},{y_pt}) -> px ({x_px},{y_px})  RGB={rgb} {hx}  scale={sx:.2f},{sy:.2f}")
-    print(f" Full: {full_path}")
-    print(f" Crop: {crop_path}")
-    print(f" Zoom: {zoom_path}")
+    # print(f" Full: {full_path}")
+    # print(f" Crop: {crop_path}")
+    # print(f" Zoom: {zoom_path}")
     print("-" * 60)
 
 def stop():
@@ -313,7 +320,7 @@ def run_next_upgrade():
     upgrade_step += 1
     if upgrade_step > 4:
         upgrade_step = 0
-        print("Cycle reset\n")
+        print("Cycle reset\nn")
 
 # ---------- Hotkeys ----------
 def on_press(key):

@@ -5,6 +5,8 @@ import sys
 import os
 import subprocess
 import json
+import cv2
+import numpy as np
 
 from Tools import botTools as bt
 from Tools import winTools as wt
@@ -24,18 +26,28 @@ Settings = Cur_Settings()
 
 Settings_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)),"Settings")
 WE_Json = os.path.join(Settings_Path,"Winter_Event.json")
+VERSION_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json")
 
-VERSION_N = '1.6.71'
+VERSION_N = "Unknown"
+
+try:
+    with open(VERSION_JSON, "r") as f:
+        VERSION_N = json.load(f).get("version", VERSION_N)
+except Exception as e:
+    print(f"[Version] Failed to load version.json: {e}")
+
 print(f"Version: {VERSION_N}")
+print("Press K to stop.")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
-PLACEMENT_TIMEOUT_SECONDS = 50
+PLACEMENT_TIMEOUT_SECONDS = 60
 
 ROBLOX_PLACE_ID = 16146832113
 
 PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
 
 WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
+USE_FAST_IMAGE_DETECTION = True # OpenCV template matching instead of pyautogui locate
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
 
@@ -52,7 +64,7 @@ AINZ_SPELLS = False #Keep FALSE!
 SLOT_ONE = (499, 150, 122, 110)
 REG_SPEED = (495, 789, 570, 866)
 REG_TAK = (495, 789, 570, 866)
-HOTBAR_REGION = (492, 771, 544, 118)
+HOTBAR_REGION = (470, 771, 570, 118)
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
@@ -61,6 +73,7 @@ g_toggle = False
 total_screenshot_count = 0
 _screenshot_count_guard = local()
 _screenshot_counter_installed = False
+_template_cache: dict[tuple[str, bool], np.ndarray | None] = {}
 
 # Info_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Info.json")
 
@@ -653,11 +666,11 @@ def quick_rts(): # Returns to spawn
         click(loc[0], loc[1], delay =0.1)
         time.sleep(0.2)
         
-def slow_rts(): # Returns to spawn
-    locations =[(232, 873), (1153, 503), (1217, 267)]
-    for loc in locations:
-        click(loc[0], loc[1], delay =1)
-        time.sleep(0.2)
+# def slow_rts(): # Returns to spawn
+#     locations =[(232, 873), (1153, 503), (1217, 267)]
+#     for loc in locations:
+#         click(loc[0], loc[1], delay =1)
+#         time.sleep(0.2)
         
 def directions(area: str, unit: str | None=None): # This is for all the pathing
     '''
@@ -787,7 +800,7 @@ def directions(area: str, unit: str | None=None): # This is for all the pathing
                         time.sleep(2)
                         timeout = 3/e_delay
                     timeout-=1
-            print("At lootbox")
+            # print("At lootbox")
 
         if area == '4': #  Upgrader location
             tap('v')
@@ -864,7 +877,7 @@ def upgrader(upgrade: str):
                 time.sleep(0.8)
 
             click(1112, 309, delay =0.1)
-            print("Fortune complete")
+            time.sleep(0.5)
 
 
         elif upgrade == "damage":
@@ -883,9 +896,11 @@ def upgrader(upgrade: str):
                 time.sleep(0.8)
 
             pyautogui.moveTo(775, 500)  # ensure scroll is inside panel
+            time.sleep(0.5)
             scroll(100)
+            time.sleep(0.5)
             click(1112, 309, delay =0.1)
-            print("Damage complete")
+            time.sleep(0.5)
 
 
         elif upgrade == 'range':
@@ -905,9 +920,11 @@ def upgrader(upgrade: str):
                 time.sleep(0.8)
 
             pyautogui.moveTo(775, 500)  # ensure scroll is inside panel
-            scroll(100)   
+            time.sleep(0.5)
+            scroll(100)
+            time.sleep(0.5)
             click(1112, 309, delay =0.1)
-            print("Range complete")
+            time.sleep(0.5)
 
 
         elif upgrade == "speed":
@@ -922,9 +939,11 @@ def upgrader(upgrade: str):
                 time.sleep(0.8)
 
             pyautogui.moveTo(775, 500)  # ensure scroll is inside panel
+            time.sleep(0.5)
             scroll(100)
+            time.sleep(0.5)
             click(1112, 309, delay =0.1)
-            print("Speed complete")
+            time.sleep(0.5)
 
         elif upgrade == "armor":
             pyautogui.moveTo(775, 500)  # ensure scroll is inside panel
@@ -943,9 +962,11 @@ def upgrader(upgrade: str):
                 time.sleep(0.8)
 
             pyautogui.moveTo(775, 500)  # ensure scroll is inside panel
+            time.sleep(0.5)
             scroll(100)
+            time.sleep(0.5)
             click(1112, 309, delay =0.1)
-            print("Armor complete")
+            time.sleep(0.5)
 
 
 
@@ -1060,7 +1081,7 @@ def secure_select(pos: tuple[int, int]):
         click(pos[0], pos[1], delay =0.1)
         time.sleep(0.8)
 
-    print(f"Selected unit at {pos}")
+    # print(f"Selected unit at {pos}")
 
 #Image recognition
 def _resolve_image_path(img_path: str) -> str:
@@ -1089,6 +1110,40 @@ def _resolve_image_path(img_path: str) -> str:
 
     # Fall back to original path so pyautogui error still includes caller input
     return img_path
+
+
+def _screenshot_to_screen_coords(x: int, y: int, img_size: tuple[int, int]) -> tuple[int, int]:
+    sw, sh = pyautogui.size()
+    iw, ih = img_size
+    if iw <= 0 or ih <= 0:
+        return int(x), int(y)
+
+    scale_x = sw / iw
+    scale_y = sh / ih
+    return int(x * scale_x), int(y * scale_y)
+
+
+def _load_template_image(img_path: str, grayscale: bool = False):
+    cache_key = (img_path, grayscale)
+    if cache_key in _template_cache:
+        return _template_cache[cache_key]
+
+    template_path = _resolve_image_path(img_path)
+    read_mode = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    template = cv2.imread(template_path, read_mode)
+    _template_cache[cache_key] = template
+    return template
+
+
+def _capture_screen_for_match(grayscale: bool = False):
+    screenshot = _safe_screenshot()
+    if screenshot is None:
+        return None
+
+    screen_img = np.array(screenshot)
+    if grayscale:
+        return cv2.cvtColor(screen_img, cv2.COLOR_RGB2GRAY)
+    return cv2.cvtColor(screen_img, cv2.COLOR_RGB2BGR)
 
 
 def _retina_to_screen_coords(x: int, y: int) -> tuple[int, int]:
@@ -1128,11 +1183,85 @@ def _screen_region_to_screenshot_region(region):
     return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
 
 
+def _find_image_center_fast(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None):
+    template = _load_template_image(img_path, grayscale=grayscale)
+    if template is None:
+        return None, None, None
+
+    screen_img = _capture_screen_for_match(grayscale=grayscale)
+    if screen_img is None:
+        return None, None, None
+
+    search_region = _screen_region_to_screenshot_region(region)
+    if search_region is None:
+        rx = ry = 0
+        crop = screen_img
+    else:
+        rx, ry, rw, rh = search_region
+        crop = screen_img[ry:ry + rh, rx:rx + rw]
+        if crop.size == 0:
+            return None, None, None
+
+    th, tw = template.shape[:2]
+    if crop.shape[0] < th or crop.shape[1] < tw:
+        return None, None, None
+
+    result = cv2.matchTemplate(crop, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    if max_val < confidence:
+        return None, None, None
+
+    center_x = rx + max_loc[0] + (tw // 2)
+    center_y = ry + max_loc[1] + (th // 2)
+    box = (rx + max_loc[0], ry + max_loc[1], tw, th)
+    return int(center_x), int(center_y), box
+
+
+_ORIGINAL_BT_DOES_EXIST = bt.does_exist
+
+
+def _does_exist_fast(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
+    cx, cy, _ = _find_image_center_fast(
+        imageDirectory,
+        confidence=confidence,
+        grayscale=grayscale,
+        region=region,
+    )
+    return cx is not None and cy is not None
+
+
+def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
+    if USE_FAST_IMAGE_DETECTION:
+        return _does_exist_fast(
+            imageDirectory,
+            confidence=confidence,
+            grayscale=grayscale,
+            region=region,
+        )
+    return _ORIGINAL_BT_DOES_EXIST(
+        imageDirectory,
+        confidence=confidence,
+        grayscale=grayscale,
+        region=region,
+    )
+
+
+bt.does_exist = does_exist
+
+
 def find_image_center(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None):
     """
     Returns (cx, cy, box) where box=(left, top, width, height), or (None, None, None) if not found.
     region is (left, top, width, height)
     """
+    if USE_FAST_IMAGE_DETECTION:
+        return _find_image_center_fast(
+            img_path,
+            confidence=confidence,
+            grayscale=grayscale,
+            region=region,
+        )
+
     resolved_img_path = _resolve_image_path(img_path)
     search_region = _screen_region_to_screenshot_region(region)
     try:
@@ -1283,7 +1412,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     if close:
         click(607, 381, delay =0.1)
 
-    print(f"Placed {unit} at {pos}")
+    # print(f"Placed {unit} at {pos}")
 
 def buy_monarch():  # this just presses e until it buys monarch, use after direction('5')
     monarch_region = (583, 508, 288, 220)
@@ -1300,13 +1429,13 @@ def buy_monarch():  # this just presses e until it buys monarch, use after direc
         timeout-=1
         tap('e')
         time.sleep(e_delay)
-    print("Found area")
+    # print("Found area")
     while not bt.does_exist('Winter/Monarch.png',confidence=0.7,grayscale=False, region=monarch_region):
         if not g_toggle:
             break
         tap('e')
         time.sleep(0.8)
-    print("Got monarch")
+    # print("Got monarch")
 
 def place_hotbar_units():
     # Scans and places all units in your hotbar, tracking them too
@@ -1321,7 +1450,7 @@ def place_hotbar_units():
                     index = Settings.Unit_Placements_Left.get(unit)-1
                     if index <0:
                         is_unit = False
-                    print(f"Placing unit {unit} {index+1} at {unit_pos}")
+                    # print(f"Placing unit {unit} {index+1} at {unit_pos}")
                     place_unit(unit, unit_pos[index])
                     if unit == 'Kag':
                         if USE_KAGUYA:
@@ -1467,11 +1596,14 @@ def _buy_and_place_nami_with_timeout(timeout_seconds: int = PLACEMENT_TIMEOUT_SE
             time.sleep(0.5)
             continue
 
-        quick_rts()
-        place_unit('Nami', (755, 524))
+        place_unit('Nami', (755, 580))
+        time.sleep(0.2)
         tap('z')
+        time.sleep(0.2)
         click(607, 381, delay=0.1)
         time.sleep(1)
+        quick_rts()
+        time.sleep(0.5)
 
         # After successful placement, Nami should no longer be in hotbar.
         if not bt.does_exist('Winter/Nami_hb.png', confidence=0.7, grayscale=False):
@@ -1494,6 +1626,26 @@ def _buy_and_place_tak_with_timeout(timeout_seconds: int = PLACEMENT_TIMEOUT_SEC
 
         # After successful placement, Nami should no longer be in hotbar.
         if not bt.does_exist('Winter/Tak_hb.png', confidence=0.7, grayscale=False):
+            return True
+
+    return False
+
+def _buy_and_place_hero_with_timeout(timeout_seconds: int = PLACEMENT_TIMEOUT_SECONDS) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline and g_toggle:
+        if not bt.does_exist('Winter/Hero_hb.png', confidence=0.7, grayscale=False):
+            tap('e')
+            time.sleep(0.5)
+            continue
+        
+        quick_rts()
+        place_unit("Hero", Settings.Unit_Positions.get("Hero"))
+        tap('z')
+        click(607, 381, delay=0.1)
+        time.sleep(1)
+
+        # After successful placement, Hero should no longer be in hotbar.
+        if not bt.does_exist('Winter/Hero_hb.png', confidence=0.7, grayscale=False):
             return True
 
     return False
@@ -1639,6 +1791,7 @@ def main():
     ensure_roblox_window_positioned()
     rabbit_pos = Settings.Unit_Positions.get("mirko")
     speed_pos =  Settings.Unit_Positions.get("speedwagon")
+    gamer_pos = Settings.Unit_Positions.get("Hero") or []
     start_of_run = datetime.now()
     startup_stats = load_json_data() or {}
     startup_total = int(startup_stats.get("num_runs", 0) or 0)
@@ -1713,7 +1866,7 @@ def main():
                 quick_rts()
                 time.sleep(1.5)
                 got_mirko = True
-                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=False):
+                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=True):
                     print("Got mirko")
                     got_mirko = True
                 else:
@@ -1805,292 +1958,358 @@ def main():
             directions('4')
             upgrader('fortune')
             click(1112, 312, delay =1)
-            quick_rts()
-            slow_rts()
-            
-            # Start auto upgrading first rabbit
-            secure_select(rabbit_pos[0])
             time.sleep(0.5)
-            tap('z')
-            click(607, 381, delay =0.1)
+            quick_rts()
+            time.sleep(0.2)
+            
+            directions('1', 'hero')
+            # time.sleep(10)
+            wave_tick = avM.get_wave()
+            while avM.get_wave()==wave_tick:
+                time.sleep(1)
+            
+            while not bt.does_exist("Winter/Hero_hb.png", confidence=0.7, grayscale=False):
+                tap('e')
+                time.sleep(0.2)
+                tap('e')
+                time.sleep(0.2)
+                tap('e')
+                time.sleep(2)
+            print("Bought Sunraku")
+            
+            quick_rts()
+            time.sleep(0.5)
+            
+            for i in range(3):
+                place_unit('Hero', gamer_pos[i], close = False)
+                Settings.Unit_Placements_Left['Hero']-=1
+                print(f"Placed Sunraku | Sunraku has {Settings.Unit_Placements_Left.get('Hero')} placements left.")
+                time.sleep(0.5)
+                click(649, 452, delay=0.1)
+                time.sleep(0.5)
+                click(1019, 707, delay=0.1)
+                time.sleep(0.5)
+                click(1140, 290,delay =0.1)
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                
+                
+            # # Start auto upgrading first rabbit
+            # secure_select(rabbit_pos[0])
+            # time.sleep(0.5)
+            # tap('z')
+            # click(607, 381, delay =0.1)
+            
+            
+            # # Start auto upgrading rabbit 1 & 2
+            # secure_select(rabbit_pos[1])
+            # time.sleep(0.5)
+            # tap('z')
+            # click(607, 381, delay =0.1)
+            # time.sleep(1)
+            # secure_select(rabbit_pos[2])
+            # time.sleep(0.5)
+            # tap('z')
+            # click(607, 381, delay =0.1)
+            # time.sleep(1)
+            
+            # # Get first monarch
+            # directions('5')
+            # buy_monarch()
+            # quick_rts()
+            # time.sleep(1)
+            # secure_select(rabbit_pos[0])
+            
+            # Wave 19 lane unlocks for 20% boost
+            time.sleep(2)
+            print("Buying lanes 2 & 3.")
+            press('d')
+            time.sleep(Settings.BUY_MAIN_LANE_DELAYS[0])
+            release('d')
+
+            tap('e'); tap('e')
+
+            press('w')
+            time.sleep(Settings.BUY_MAIN_LANE_DELAYS[1])
+            release('w')
+
+            tap('e'); tap('e')
+            time.sleep(0.5)
+            quick_rts()
             
             # get +100% dmg upgrade
             directions('4')
+            upgrader('speed')
             upgrader('damage')
-            click(1112, 312, delay =0.1)
-            quick_rts()
-            slow_rts()
-            
-            # Start auto upgrading rabbit 1 & 2
-            secure_select(rabbit_pos[1])
+            upgrader('range')
             time.sleep(0.5)
-            tap('z')
-            click(607, 381, delay =0.1)
-            time.sleep(1)
-            secure_select(rabbit_pos[2])
+            click(1112, 312, delay=1)
             time.sleep(0.5)
-            tap('z')
-            click(607, 381, delay =0.1)
-            time.sleep(1)
-            
-            # Get first monarch
-            directions('5')
-            buy_monarch()
             quick_rts()
-            time.sleep(1)
-            secure_select(rabbit_pos[0])
             
-            # Wave 19 lane unlocks for 20% boost
-            wave_19 = False
+            for gamer in Settings.Unit_Positions['Hero']:
+                click(gamer[0],gamer[1],delay =0.1)
+                secure_select((gamer[0],gamer[1]))
+                time.sleep(0.5)
+                tap('z')
+                set_boss()
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                directions('5')
+                buy_monarch()
+                quick_rts()
+                time.sleep(0.5)
+                secure_select((gamer[0],gamer[1]))
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+            # wave_19 = False
 
-            while not wave_19 and g_toggle:
-                w = avM.get_wave()
-                print("Wave read:", w)
+            # while not wave_19 and g_toggle:
+            #     w = avM.get_wave()
+            #     print("Wave read:", w)
                 
-                # ✅ guard against None / unreadable values
-                if w is None or w == -1:
+            #     # ✅ guard against None / unreadable values
+            #     if w is None or w == -1:
+            #         time.sleep(0.5)
+            #         continue
+
+            #     if w >= 19:
+            #         # DIR_BUYMAINLANES
+            #         press('d')
+            #         time.sleep(Settings.BUY_MAIN_LANE_DELAYS[0])
+            #         release('d')
+
+            #         tap('e'); tap('e')
+
+            #         press('w')
+            #         time.sleep(Settings.BUY_MAIN_LANE_DELAYS[1])
+            #         release('w')
+
+            #         tap('e'); tap('e')
+
+            #         wave_19 = True
+            #         break
+
+            #     time.sleep(0.5)
+            
+            time.sleep(0.5)
+            # Go to lootbox         
+            
+            Erza_Upgraded = False
+            Erza_Buff = False
+            
+            gamble_done = False
+            ainzplaced = False
+            prevent_inf = 5
+            at_lootbox = False
+
+            while not gamble_done:
+
+                if not ainzplaced and Settings.Unit_Placements_Left['Ainz'] == 0:
+                    print("Ainz Setup")
+                    quick_rts()
+                    time.sleep(1)
+
+                    ainz_pos = Settings.Unit_Positions['Ainz']
+                    pos = Settings.Unit_Positions.get("Caloric_Unit")
+
+                    secure_select((ainz_pos[0]))
                     time.sleep(0.5)
+                    tap('z')
+                    time.sleep(0.5)
+
+                    if Settings.USE_WD == True:
+                        ainz_setup(unit="world des")
+                    elif Settings.USE_DIO == True:
+                        ainz_setup(unit="god")
+                    elif USE_BUU:
+                        ainz_setup(unit="boo")
+                    else:
+                        ainz_setup(unit=Settings.USE_AINZ_UNIT)
+
+                    global AINZ_SPELLS
+                    if not AINZ_SPELLS:
+                        AINZ_SPELLS = True
+
+                    click(pos[0], pos[1], delay=0.67)
+                    time.sleep(0.5)
+
+                    while not pixel_matches_seen(604, 382, (255, 255, 255), tol=20, sample_half=2) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
+                        if not g_toggle:
+                            break
+                        click(pos[0], pos[1], delay=0.67)
+                        time.sleep(0.5)
+
+                    time.sleep(1)
+
+                    if Settings.USE_DIO:
+                        ability_clicks = [(648, 448), (1010, 563), (1099, 309)]
+                        for p in ability_clicks:
+                            click(p[0], p[1], delay =0.1)
+                            time.sleep(1.2)
+
+                    if Settings.MAX_UPG_AINZ_PLACEMENT:
+                        tap('z')
+
+                    if Settings.MONARCH_AINZ_PLACEMENT:
+                        directions('5')
+                        buy_monarch()
+                        quick_rts()
+                        time.sleep(1)
+                        click(pos[0], pos[1], delay=0.67)
+
+                    time.sleep(1)
+                    print("Placed ainz's unit")
+                    click(607, 381, delay =0.1)
+
+                    ainzplaced = True
+
+                    directions('5')
+                    buy_monarch()
+                    quick_rts()
+                    time.sleep(1)
+                    click(ainz_pos[0][0],ainz_pos[0][1],delay =0.1)
+
+                    time.sleep(1)
+                    directions('4')
+                    upgrader('armor')
+                    click(1112, 312, delay =1)
+                    time.sleep(0.5)
+                    quick_rts()
+
+                    at_lootbox = False
                     continue
 
-                if w >= 19:
-                    # DIR_BUYMAINLANES
-                    press('d')
-                    time.sleep(Settings.BUY_MAIN_LANE_DELAYS[0])
-                    release('d')
+                if (ainzplaced or avM.get_wave()>=40 or not Erza_Buff) and not Erza_Upgraded:
 
-                    tap('e'); tap('e')
+                    erza_buffer = Settings.Unit_Positions['Mage']
 
-                    press('w')
-                    time.sleep(Settings.BUY_MAIN_LANE_DELAYS[1])
-                    release('w')
+                    if Settings.Unit_Placements_Left['Mage'] == 0:
+                        quick_rts()
+                        time.sleep(1)
 
-                    tap('e'); tap('e')
+                        if Erza_Buff:
+                            print("Duelist Erzas")
+                            secure_select(erza_buffer[1])
+                            time.sleep(0.8)
+                            tap('z')
+                            click(647, 449,delay =0.1)
 
-                    wave_19 = True
-                    break
+                            while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
+                                click(747, 690,delay =0.1)
+                                time.sleep(0.5)
 
-                time.sleep(0.5)
-    
-            # Get 2nd and 3rd bunny monarch'd
-            quick_rts()
-            directions('5')
-            buy_monarch()
-            quick_rts()
-            time.sleep(1)
-            secure_select(rabbit_pos[1])
-            time.sleep(1)
-            directions('5')
-            buy_monarch()
-            quick_rts()
-            time.sleep(1)
-            secure_select(rabbit_pos[2])
-            
-            # Get all upgrades
-            directions('4')
-            upgrader('range')
-            upgrader('speed')
-            upgrader('armor')
-            click(1112, 312, delay =0.1)
-            quick_rts()
-            slow_rts()
-            directions('3')
-            
-            Ben_Upgraded = False
-            Erza_Upgraded = False
-            Gamer_Upgraded = False
-            Kuzan_Upgraded = False
-            
-            # Lucky box
-            gamble_done = False
-            g_toggle= True
-            ainzplaced=False
-            prevent_inf = 5
-            while not gamble_done:
-                for i in range(50):
+                            click(752, 548,delay =0.1)
+                            time.sleep(0.5)
+                            click(1140, 290,delay =0.1)
+                            set_boss()
+                            time.sleep(0.5)
+
+                            secure_select(erza_buffer[2])
+                            time.sleep(0.8)
+                            click(647, 449,delay =0.1)
+                            tap('z')
+
+                            while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
+                                click(747, 690,delay =0.1)
+                                time.sleep(0.5)
+
+                            click(752, 548,delay =0.1)
+                            time.sleep(0.5)
+                            click(1140, 290,delay =0.1)
+                            set_boss()
+                            time.sleep(0.5)
+                            click(607, 381, delay =0.1)
+
+                            directions('5')
+                            buy_monarch()
+                            quick_rts()
+                            click(erza_buffer[1][0],erza_buffer[1][1],delay =0.1)
+                            time.sleep(0.5)
+
+                            directions('5')
+                            buy_monarch()
+                            quick_rts()
+                            click(erza_buffer[2][0],erza_buffer[2][1],delay =0.1)
+                            time.sleep(0.5)
+
+                            Erza_Upgraded = True
+                            at_lootbox = False
+                            continue
+
+                        if not Erza_Buff:
+
+                            print("Buffing with Erza.")
+                            secure_select(erza_buffer[0])
+                            time.sleep(8)
+
+                            click(378,662)
+                            time.sleep(0.8)
+                            click(647, 449,delay =0.1)
+
+                            while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
+                                click(1015,690,delay =0.1)
+                                time.sleep(0.5)
+
+                            click(752, 548,delay =0.1)
+                            time.sleep(0.5)
+                            click(1140, 290,delay =0.1)
+                            time.sleep(0.5)
+                            click(607, 381, delay =0.1)
+
+                            Erza_Buff = True
+                            at_lootbox = False
+                            continue
+
+                ready_to_gamble = True
+
+                for unit in Settings.Units_Placeable:
+                    if unit != "Doom":
+                        if Settings.Unit_Placements_Left[unit] > 0:
+                            ready_to_gamble = False
+                            break
+
+                if not at_lootbox:
+                    directions('3')
+                    at_lootbox = True
+
+                for _ in range(50):
                     tap('e')
                     time.sleep(0.1)
+
                 prevent_inf -= 1
                 print(f"Prevent Inf: {prevent_inf}")
-                
+
                 full_bar = bt.does_exist("Winter/Full_Bar.png", confidence=0.7, grayscale=True)
                 no_yen = bt.does_exist("Winter/NO_YEN.png", confidence=0.5, grayscale=True)
 
                 if full_bar or no_yen or (prevent_inf <= 0):
                     prevent_inf = 5
-                    print("Getting Units")
+                    # print("Getting Units")
                     quick_rts()
                     time.sleep(2)
                     place_hotbar_units()
-                    directions('3')
-                
-                if not ainzplaced:
-                    if Settings.Unit_Placements_Left['Ainz'] == 0: # Ainz thingy
-                        print("Ainz Setup")
-                        quick_rts()
-                        time.sleep(1)
-                        ainz_pos = Settings.Unit_Positions['Ainz']
-                        pos = Settings.Unit_Positions.get("Caloric_Unit")
-                        secure_select((ainz_pos[0]))
-                        time.sleep(0.5)
-                        tap('z')
-                        time.sleep(0.5)
-                        if Settings.USE_WD == True:
-                            ainz_setup(unit="world des")
-                        elif Settings.USE_DIO == True:
-                            ainz_setup(unit="god")
-                        elif USE_BUU:
-                            ainz_setup(unit="boo")
-                        else:
-                            ainz_setup(unit=Settings.USE_AINZ_UNIT)
-                        global AINZ_SPELLS
-                        if not AINZ_SPELLS:
-                            AINZ_SPELLS = True
-                        click(pos[0], pos[1], delay=0.67) # Place world destroyer
-                        time.sleep(0.5)
-                        while not pixel_matches_seen(604, 382, (255, 255, 255), tol=20, sample_half=2) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
-                            if not g_toggle:
-                                break
-                            click(pos[0], pos[1], delay=0.67)
-                            time.sleep(0.5)
+                    at_lootbox = False
 
-                        time.sleep(1)
-                        if Settings.USE_DIO:
-                            ability_clicks = [(648, 448), (1010, 563), (1099, 309)]
-                            for p in ability_clicks:
-                                click(p[0], p[1], delay =0.1)
-                                time.sleep(1.2)
-                        if Settings.MAX_UPG_AINZ_PLACEMENT:
-                            tap('z')
-                        if Settings.MONARCH_AINZ_PLACEMENT:
-                            directions('5')
-                            buy_monarch()
-                            quick_rts()
-                            time.sleep(1)
-                            click(pos[0], pos[1], delay=0.67) 
-                        time.sleep(1)
-                        print("Placed ainz's unit")
-                        click(607, 381, delay =0.1)
-                        
-
-                        directions('5')
-                        buy_monarch()
-                        quick_rts()
-                        time.sleep(1)
-                        click(ainz_pos[0][0],ainz_pos[0][1],delay =0.1)
-                        time.sleep(1)
-                        ainzplaced = True
-                        # go gamble more son
-                        directions('3')
-                        
-                        
-                        
-                if not Erza_Upgraded:
-                    print("Buffing Erza")
-                    erza_buffer = Settings.Unit_Positions['Mage']
-                    if Settings.Unit_Placements_Left['Mage'] == 0:
-                        quick_rts()
-                        time.sleep(1)
-                        # Buffer
-                        secure_select(erza_buffer[0])
-                        time.sleep(8)
-                        click(378,662)
-                        time.sleep(0.8)
-                        click(647, 449,delay =0.1)
-                        while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
-                            click(1015,690,delay =0.1)
-                            time.sleep(0.5)
-                        click(752, 548,delay =0.1)
-                        time.sleep(0.5)
-                        click(1140, 290,delay =0.1)
-                        time.sleep(0.5)
-                        click(607, 381, delay =0.1)
-                            
-                        #Duelist 1
-                        secure_select(erza_buffer[1])
-                        time.sleep(0.8)
-                        tap('z')
-                        click(647, 449,delay =0.1)
-                        while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
-                            click(747, 690,delay =0.1)
-                            time.sleep(0.5)
-                        click(752, 548,delay =0.1)
-                        time.sleep(0.5)
-                        click(1140, 290,delay =0.1)
-                        set_boss()
-                        time.sleep(0.5)
-                        
-                        #Duelist 2
-                        secure_select(erza_buffer[2])
-                        time.sleep(0.8)
-                        click(647, 449,delay =0.1)
-                        tap('z')
-                        while not bt.does_exist('Winter/Erza_Armor.png',confidence=0.8,grayscale=True):
-                            click(747, 690,delay =0.1)
-                            time.sleep(0.5)
-                        click(752, 548,delay =0.1)
-                        time.sleep(0.5)
-                        click(1140, 290,delay =0.1)
-                        set_boss()
-                        time.sleep(0.5)
-                        click(607, 381, delay =0.1)
-                        
-                        directions('5')
-                        buy_monarch()
-                        quick_rts()
-                        click(erza_buffer[1][0],erza_buffer[1][1],delay =0.1)
-                        time.sleep(0.5)
-                        
-                        directions('5')
-                        buy_monarch()
-                        quick_rts()
-                        click(erza_buffer[2][0],erza_buffer[2][1],delay =0.1)
-                        time.sleep(0.5)
-                        Erza_Upgraded = True
-                        # more gamble
-                        directions('3')
-                        
-                if not Ben_Upgraded:
-                    print("Upgrading Beni")
-                    if Settings.Unit_Placements_Left['Beni'] == 0:
-                        quick_rts()
-                        time.sleep(1)
-                        for ben in Settings.Unit_Positions['Beni']:
-                            click(ben[0],ben[1],delay =0.1)
-                            secure_select((ben[0],ben[1]))
-                            time.sleep(0.5)
-                            tap('z')
-                            set_boss()
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                            directions('5')
-                            buy_monarch()
-                            quick_rts()
-                            time.sleep(0.5)
-                            secure_select((ben[0],ben[1]))
-                            time.sleep(0.5)
-                            click(607, 381, delay =0.1)
-                        Ben_Upgraded = True
-                        # more gamble
-                        directions('3')
                 print("===============================")
                 is_done = True
+
                 for unit in Settings.Units_Placeable:
                     if unit != "Doom":
                         if Settings.Unit_Placements_Left[unit] > 0:
                             is_done = False
                             print(f"{unit} has {Settings.Unit_Placements_Left[unit]} placements left.")
+
                 print("===============================")
-                if is_done:
+
+                if is_done and ainzplaced and Erza_Buff:
                     gamble_done = True
+
                 time.sleep(0.1)
+
             print("Gambling done")
-             
-               
 
             # Auto upgrade + Monarch everything else
-            
-            # set up buffer erza
-            
             quick_rts()
             time.sleep(1)
     
@@ -2098,14 +2317,11 @@ def main():
             if Settings.USE_WD:
                 secure_select(Settings.Unit_Positions.get("Caloric_Unit"))
                 time.sleep(1)
-                for i in range(10):
-                    tap('t')
-                    time.sleep(0.5)
                 while not bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
                     tap('t')
                     time.sleep(1)
                     if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
-                        print("Stop, maxed on accident")
+                        print("Unit Maxed.")
                         break
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
@@ -2156,9 +2372,24 @@ def main():
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
             
+            print("Maxing the rest of the units.")
+            for ben in Settings.Unit_Positions['Beni']:
+                secure_select((ben[0],ben[1]))
+                time.sleep(0.5)
+                tap('z')
+                set_boss()
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                directions('5')
+                buy_monarch()
+                quick_rts()
+                time.sleep(0.5)
+                secure_select((ben[0],ben[1]))
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                    
             # ice queen
             for ice in Settings.Unit_Positions['Rukia']:
-                 
                 secure_select((ice[0],ice[1]))
                 time.sleep(0.5)
                 set_boss()
@@ -2184,25 +2415,7 @@ def main():
                 click(607, 381, delay =0.1)
 
             
-            for gamer in Settings.Unit_Positions['Hero']:
-                click(gamer[0],gamer[1],delay =0.1)
-                secure_select((gamer[0],gamer[1]))
-                time.sleep(0.5)
-                tap('z')
-                set_boss()
-                time.sleep(0.5)
-                click(607, 381, delay =0.1)
-                directions('5')
-                buy_monarch()
-                quick_rts()
-                time.sleep(0.5)
-                secure_select((gamer[0],gamer[1]))
-                time.sleep(0.5)
-                click(607, 381, delay =0.1)
-
-            
             for kuzan in Settings.Unit_Positions['Kuzan']:
-                click(kuzan[0],kuzan[1],delay =0.1)
                 secure_select((kuzan[0],kuzan[1]))
                 time.sleep(0.5)
                 tap('z')
@@ -2212,11 +2425,25 @@ def main():
                 directions('5')
                 buy_monarch()
                 quick_rts()
-                time.sleep(0.5)
+                time.sleep(1)
                 secure_select((kuzan[0],kuzan[1]))
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
-                
+            
+            for i in range(3):
+                click(rabbit_pos[i][0], rabbit_pos[i][1], delay =0.1)
+                time.sleep(0.5)
+                tap('z')
+                set_boss()
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
+                directions('5')
+                buy_monarch()
+                quick_rts()
+                time.sleep(1)
+                click(rabbit_pos[i][0], rabbit_pos[i][1], delay =0.1)
+                time.sleep(0.5)
+                click(607, 381, delay =0.1)
                         
             for esc in Settings.Unit_Positions['Escanor']:
                 click(esc[0],esc[1],delay =0.1)
@@ -2233,8 +2460,9 @@ def main():
                 time.sleep(0.5)
                 click(607, 381, delay =0.1)
             
- 
-
+            esc_ability = False
+            
+            print("Finished Upgrading! Waiting for end wave.")
             if Settings.WAVE_RESTART_150:
                 wave_150 = False
                 done_path = False
@@ -2247,7 +2475,17 @@ def main():
                     if w is None or w == -1:
                         time.sleep(0.5)
                         continue
-
+                    
+                    if w == 145 and not esc_ability:
+                        click(607, 381, delay =0.1)
+                        print("Escanor Ability")
+                        click(esc[0],esc[1],delay =0.1)
+                        time.sleep(0.5)
+                        click(649,514, delay=0.1)
+                        time.sleep(0.5)
+                        click(607, 381, delay =0.1)
+                        esc_ability = True
+                        
                     # Run once on confirmed wave 149
                     if (not done_path) and w == 148:
                         print("Confirmed wave 148 — running pre-150 logic")
@@ -2258,7 +2496,7 @@ def main():
                         time.sleep(0.7)
 
                         ok = click_image_center("Winter/LookDownFinder.png",confidence=0.8,grayscale=False,offset=(0, -50))
-                        print("[LookDownFinder click] ok =", ok)
+                        print("[LookDownFinder] Found =", ok)
 
                         tap('f')
 
@@ -2322,7 +2560,17 @@ def main():
                     if w is None or w == -1:
                         time.sleep(0.5)
                         continue
-
+                    
+                    if w == 135 and not esc_ability:
+                        click(607, 381, delay =0.1)
+                        print("Escanor Ability")
+                        click(esc[0],esc[1],delay =0.1)
+                        time.sleep(0.5)
+                        click(649,514, delay=0.1)
+                        time.sleep(0.5)
+                        click(607, 381, delay =0.1)
+                        esc_ability = True
+                    
                     # Run once on confirmed wave 139
                     if (not done_path) and w == 138:
                         print("Confirmed wave 138 — running pre-140 logic")
@@ -2373,7 +2621,7 @@ def main():
                         done_path = True  # ✅ stop spam thread
 
                     # Exit when 140 is reached (or higher, within sane range)
-                    if w == 140:
+                    if w >= 140:
                         print(f"Wave Read: {w}")
                         wave_140 = True
                     else:

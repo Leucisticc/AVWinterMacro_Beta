@@ -1,12 +1,14 @@
 import time
 import pyautogui
 import os
+import sys
 import webhook
 import subprocess
 import cv2
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+from threading import Thread
 from pynput import keyboard as pynput_keyboard
 from pynput.keyboard import Controller
 from Tools import botTools as bt
@@ -15,13 +17,17 @@ from Tools import avMethods as avM
 
 failed_runs = 0
 failed_matches = 0
-#armin, sasuke, nami, orehime, erza
+loss_detection_active = False
+loss_detected = False
 
-RUNS_BEFORE_REJOIN = 250
+#Editable settings
+ainz_unit = 'rei' # Change to your units name as you would search for it
+TWO_WB = True
+ENABLE_PERIODIC_LOSS_CHECKER = True # Checks periodically if you have lost
+LOSS_CHECK_INTERVAL_SECONDS = 20.0  # How many seconds it waits before checking again
+MAX_NEGATIVE_MODIFIERS = 2 # Change this to make it more or less defficult
 
-AUTO_SETUP_CAM = False
-ainz_unit = 'rei' #Change to your units name as you would search for it
-TWO_WB = False
+
 
 AINZ_SPELLS = False
 COINS_PER_WIN = 150
@@ -42,7 +48,6 @@ MODIFIER_CARD_REGIONS: list[tuple[int, int, int, int]] = [
 ]
 USE_CARD_MODIFIER_SELECTOR = True
 USE_FAST_MODIFIER_CARD_SELECTOR = True
-MAX_NEGATIVE_MODIFIERS = 2
 MODIFIER_SELECTION_TIMEOUT = 6.0
 
 MODIFIERS = {
@@ -134,14 +139,13 @@ MODIFIER_PHASE_BY_WAVE = {
 }
 
 UNITS = {
-    "ainzunit": {"name": "Reimu", "hotbar": (1000, 835), "pos": (924, 578)},
-    "nami": {"name": "Nami", "hotbar": (1000, 835), "pos": (648, 354)},
-    "ghost": {"name": "Ghost", "hotbar": (900, 835), "pos": (1017, 485)},
-    "ainz": {"name": "Ainz", "hotbar": (800, 835), "pos": (810, 597)},
-    "rukia": {"name": "Rukia", "hotbar": (700, 835), "pos": (853, 577)},
-    "wb": {"name": "WB", "hotbar": (600, 835), "pos": (1070, 590)},
-    "wb2": {"name": "WB2", "hotbar": (600, 835), "pos": (696, 497)},
-    "alucard": {"name": "Alucard", "hotbar": (500, 835), "pos": (886, 577)},
+    "ainzunit": {"name": "Reimu", "hotbar": (1000, 835), "pos": (1062, 570)},
+    "hb6": {"name": "Nami", "hotbar": (1000, 835), "pos": (696, 275)},
+    "hb5": {"name": "Ghost", "hotbar": (900, 835), "positions": [(1100,581), (740, 521)]},
+    "ainz": {"name": "Ainz", "hotbar": (800, 835), "pos": (899, 627)},
+    "hb3": {"name": "Rukia", "hotbar": (700, 835), "pos": (853, 577)},
+    "hb2": {"name": "WB", "hotbar": (600, 835), "positions": [(768, 484), (1059, 663)]},
+    "hb1": {"name": "Alucard", "hotbar": (500, 835), "pos": (949, 606)},
 }
 
 keyboard_controller = Controller()
@@ -164,6 +168,21 @@ def write_text(text, interval=0.5):
         keyboard_controller.press(char)
         keyboard_controller.release(char)
         time.sleep(interval)
+
+
+def restart_script():
+    try:
+        args = list(sys.argv)
+        if "--stopped" in args:
+            args.remove("--stopped")
+        if "--restart" in args:
+            args.remove("--restart")
+
+        sys.stdout.flush()
+        subprocess.Popen([sys.executable, *args])
+        os._exit(0)
+    except Exception as e:
+        print(f"[Restart] relaunch error: {e}")
         
 listener = pynput_keyboard.Listener(on_press=on_press)
 listener.daemon = True
@@ -632,7 +651,7 @@ def select_modifier_from_cards_fast(
                 time.sleep(0.12)
                 print(
                     f"Selected modifier: {visible_modifier['label']} "
-                    f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
+                    f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})\n"
                 )
                 return visible_name
 
@@ -699,11 +718,11 @@ def select_modifier_from_cards(
                 cx, cy = _retina_to_screen_coords(center[0], center[1])
                 click(cx, cy, delay=0.1)
                 time.sleep(0.12)
-                print(
-                    f"Selected modifier: {visible_modifier['label']} "
-                    f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})"
-                )
-                return visible_name
+            print(
+                f"Selected modifier: {visible_modifier['label']} "
+                f"({visible_modifier['alignment']}, phase={phase or get_modifier_phase(wave)})\n"
+            )
+            return visible_name
 
     print("Visible modifiers found, but none matched the current eligible priority list.")
     return None
@@ -761,22 +780,33 @@ def do_action(action, *args, post_delay: float = 0.5, wait_phase: str = "early",
 
 def place_unit(
     unit,
-    click_delay=0.5,
+    click_delay=0.6,
     step_delay=0.4,
     close=False,
 ):
     place_attempts = 15
     white_ui = (235, 235, 235)
     confirm_pixel = (604, 380)
+    retry_confirm_delay = 0.2
     placed = False
-
+    time.sleep(0.2)
     click(unit["hotbar"], delay=click_delay)
     time.sleep(step_delay)
-    click(unit["pos"], delay=0.5)
+    click(unit["pos"], delay=click_delay)
     time.sleep(step_delay)
 
     for attempt in range(place_attempts):
         if attempt > 0:
+            time.sleep(retry_confirm_delay)
+            if pixel_matches_seen(confirm_pixel[0], confirm_pixel[1], white_ui, tol=25, sample_half=2):
+                placed = True
+                break
+
+            if bt.does_exist("Winter/UnitExists.png", confidence=0.8, grayscale=True):
+                placed = True
+                break
+
+            print(f"[place_unit] hotbar click (retry {attempt}): {unit['name']}")
             click(unit["hotbar"], delay=0.12)
             time.sleep(0.12)
             click(unit["pos"], delay=0.51)
@@ -812,6 +842,12 @@ def place_unit(
 
     if close:
         click(CLOSE_POS, delay=0.1)
+
+
+def place_unit_at(unit, pos_index=0, **kwargs):
+    unit_data = dict(unit)
+    unit_data["pos"] = unit["positions"][pos_index]
+    return place_unit(unit_data, **kwargs)
 
 def click_vote_start(max_attempts: int = 5, delay: float = 0.6) -> bool:
     for attempt in range(1, max_attempts + 1):
@@ -930,16 +966,15 @@ def goToStart():
     time.sleep(3)
     quick_rts()
     time.sleep(1)
-    for i in range(6):
-        shift_scroll(1)
-        time.sleep(0.3)
-    
-    click(1067, 195, right_click=True)
+    click(1083, 291, right_click=True)
     time.sleep(3.3)
-    click(1140,290, right_click=True)
+    click(1082,526, right_click=True)
+    time.sleep(4)
+    click(944,452, right_click=True)
     time.sleep(4)
     
-    tap('w',hold=0.12)
+    
+    tap('right', hold=1)
 
 def ainz_setup_spells():
     # spell_clicks = [
@@ -1010,7 +1045,7 @@ def place_ainz_unit():
 
 def fully_upgrade(ability=False):
     print("Waiting for max upgrade.")
-    click(UNITS["alucard"]["pos"])
+    click(UNITS["hb1"]["pos"])
     while not bt.does_exist("Unit_Maxed.png", confidence=0.7,grayscale=False):
         wait_for_safe_action_wave()
         time.sleep(5)
@@ -1044,7 +1079,7 @@ def wait_for_wave_30_and_modifiers(
     negative_count: int,
     handled_modifier_waves: set[int],
     delay: float = 0.5,
-    timeout: float = 1200.0,
+    timeout: float = 900.0,
 ) -> int:
     end_time = time.time() + timeout
     last_wave_pending = False
@@ -1114,12 +1149,16 @@ def wait_for_wave_30_and_modifiers(
     return negative_count
 
 
-def wait_end(total_runs, negative_count: int, delay: float = 0.5, timeout: float = 1200.0):
+def wait_end(total_runs, negative_count: int, delay: float = 0.5, timeout: float = 180.0):
     global failed_runs
     global failed_matches
+    global loss_detected
     end_time = time.time() + timeout
     while time.time() < end_time:
         try:
+            if loss_detected:
+                print("❌ Periodic failure detected")
+                return "fail", total_runs, negative_count
             if bt.does_exist("Victory.png", confidence=0.7, grayscale=False): #Won
                 print("✅ Win detected")
                 failed_runs = 0
@@ -1134,6 +1173,30 @@ def wait_end(total_runs, negative_count: int, delay: float = 0.5, timeout: float
 
     print("❌ Replay button NOT detected (timeout)")
     return "timeout", total_runs, negative_count
+
+
+def periodic_loss_checker():
+    global loss_detected
+
+    print(f"[Loss Checker] Active. Interval: {LOSS_CHECK_INTERVAL_SECONDS}s")
+    while True:
+        if not ENABLE_PERIODIC_LOSS_CHECKER or not loss_detection_active or loss_detected:
+            time.sleep(1)
+            continue
+
+        try:
+            if bt.does_exist("Failed.png", confidence=0.7, grayscale=False):
+                loss_detected = True
+                print("❌ Periodic failure checker found Failed.png")
+                click(REPLAY_POS, delay=0.3)
+                time.sleep(0.2)
+                click(REPLAY_POS, delay=0.3)
+                time.sleep(0.2)
+                restart_script()
+        except Exception as e:
+            print(f"[Loss Checker] detect error: {e}")
+
+        time.sleep(LOSS_CHECK_INTERVAL_SECONDS)
 
 def _roblox_window_screenshot_for_webhook():
     try:
@@ -1225,9 +1288,13 @@ def focus_roblox():
     time.sleep(0.2)
     
 def bleach_dungeon():
+    global loss_detection_active
+    global loss_detected
+
     print("Starting Bleach Macro.")
     print("Press K to stop.")
     time.sleep(1)
+    focus_roblox()
     ensure_roblox_window_positioned()
     
     # while not avM.get_wave() == 0:
@@ -1236,9 +1303,11 @@ def bleach_dungeon():
     total_runs = 0
     wins = 0
     losses = 0
-    if AUTO_SETUP_CAM:
+    if not bt.does_exist("Bleach_Dungeon/Positioned.png", confidence=0.7, region=(673,351,208,169), grayscale=False):
         goToStart()
     while True:
+        loss_detection_active = False
+        loss_detected = False
         negative_modifier_count = 0
         handled_modifier_waves: set[int] = set()
 
@@ -1248,21 +1317,23 @@ def bleach_dungeon():
             click(REPLAY_POS, delay=0.3)
             time.sleep(0.5)
         handle_wave_zero_fisticuffs()
-        place_unit(UNITS['nami'])
+        loss_detection_active = True
+        time.sleep(0.2)
+        place_unit(UNITS['hb6'])
         while avM.get_wave() < 1:
-            print(avM.get_wave())
             time.sleep(0.5)
-        do_action(place_unit, UNITS["ghost"], wait_after=False)
+        do_action(place_unit_at, UNITS["hb5"], 0, wait_after=False)
         do_action(place_unit, UNITS["ainz"], wait_after=False)
-        do_action(place_ainz_unit)
-        do_action(place_unit, UNITS["alucard"])
-        do_action(place_unit, UNITS["wb"])
-        do_action(upgrade, UNITS['nami'])
-        do_action(upgrade, UNITS['alucard'])
+        do_action(place_ainz_unit, wait_after=False)
+        do_action(place_unit, UNITS["hb1"])
+        do_action(place_unit_at, UNITS["hb5"], 1)
+        do_action(place_unit_at, UNITS["hb2"], 0)
+        do_action(upgrade, UNITS['hb6'])
+        do_action(upgrade, UNITS['hb1'])
         do_action(ainz_setup_spells)
         do_action(fully_upgrade, ability=True)
         if TWO_WB:
-            do_action(place_unit, UNITS["wb2"])
+            do_action(place_unit_at, UNITS["hb2"], 1)
         do_action(upgrade, UNITS['ainz'], close=True)
 
         negative_modifier_count = wait_for_wave_30_and_modifiers(
@@ -1274,6 +1345,8 @@ def bleach_dungeon():
             total_runs,
             negative_modifier_count,
         )
+        loss_detection_active = False
+
         if end_state == "win":
             wins += 1
             total_runs += 1
@@ -1291,7 +1364,9 @@ def bleach_dungeon():
             print("Run failed; wins not incremented.")
         else:
             print("Replay not detected; skipping win stat update for this cycle.")
+            click(REPLAY_POS, delay=0.3)
         
         # Loop again from wait_start() on next iteration.
         continue
+Thread(target=periodic_loss_checker, daemon=True).start()
 bleach_dungeon()
