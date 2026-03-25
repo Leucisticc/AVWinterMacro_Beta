@@ -22,6 +22,8 @@ VERSION_FILE = "version.json"  # optional; falls back to Winter_Event.py VERSION
 # Keep Settings/Winter_Event.json OUT so user settings are preserved.
 UPDATE_WHITELIST = [
     "Winter_Event.py",
+    "Bleach_Dungeon.py",
+    "Cid_Act_1.py",
     "webhook.py",
     "Position.py",
     "Tools/",
