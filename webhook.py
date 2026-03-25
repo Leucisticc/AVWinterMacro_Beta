@@ -8,7 +8,11 @@ import requests
 webhook_url = 'YOUR_URL_HERE'
 WEBHOOK_MAX_RETRIES = 3
 WEBHOOK_TIMEOUT_SECONDS = 15
-
+DOUBLE_PRESENTS = False
+if DOUBLE_PRESENTS:
+    PRESENTS = 420000
+else:
+    PRESENTS = 210000
 
 def _to_int(value: Any, default: int = 0) -> int:
     try:
@@ -19,6 +23,27 @@ def _to_int(value: Any, default: int = 0) -> int:
 
 def _format_number(value: Any) -> str:
     return f"{_to_int(value, 0):,}"
+
+
+def _runtime_to_hours(run_time: Any) -> float:
+    text = str(run_time).strip()
+    if not text:
+        return 0.0
+
+    parts = text.split(":")
+    try:
+        if len(parts) == 3:
+            hours, minutes, seconds = (int(part) for part in parts)
+        elif len(parts) == 2:
+            hours = 0
+            minutes, seconds = (int(part) for part in parts)
+        else:
+            return 0.0
+    except Exception:
+        return 0.0
+
+    total_seconds = (hours * 3600) + (minutes * 60) + seconds
+    return total_seconds / 3600 if total_seconds > 0 else 0.0
 
 
 def _prepare_image_file(img):
@@ -58,6 +83,9 @@ def _build_embed_fields(
         lose_i = _to_int(lose, 0)
         total = win_i + lose_i
         success_rate = (win_i / total * 100) if total > 0 else 0.0
+        total_rewards = _to_int(rewards, PRESENTS * win_i)
+        runtime_hours = _runtime_to_hours(run_time)
+        hourly_rate = int(total_rewards / runtime_hours) if runtime_hours > 0 else 0
 
         fields.extend(
             [
@@ -66,7 +94,12 @@ def _build_embed_fields(
                 {"name": "🔁 Total Runs", "value": str(total), "inline": True},
                 {
                     "name": "💰 Rewards",
-                    "value": _format_number(rewards) if rewards is not None else f"{_format_number(210000 * win_i)} collected",
+                    "value": f"~ {_format_number(total_rewards)} collected",
+                    "inline": True,
+                },
+                {
+                    "name": "⏱️ Rewards / Hour",
+                    "value": f"~ {_format_number(hourly_rate)}/hr" if hourly_rate > 0 else "Calculating...",
                     "inline": True,
                 },
             ]

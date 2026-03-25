@@ -1,19 +1,25 @@
 import pywinctl as pwc
 
 def set_rblx():
+    window = None
+    found_title = None
 
-    windows = pwc.getWindowsWithTitle("Roblox")
+    for title in ("Roblox", "RobloxPlayer"):
+        windows = pwc.getWindowsWithTitle(title)
+        if windows:
+            window = windows[0]
+            found_title = title
+            break
 
-    if not windows:
-        print("Roblox window not found")
+    if window is None:
+        print("Roblox window not found (checked Roblox and RobloxPlayer)")
         return
 
-    window = windows[0]
     window.resizeTo(1100, 800)
-    print("Resized.")
+    print(f"Resized {found_title}.")
     window.moveTo(200, 100)
-    print("Moved.")
+    print(f"Moved {found_title}.")
     window.activate()
-    print("Finished Positioning.")
+    print(f"Finished positioning {found_title}.")
 
 set_rblx()

@@ -1,6 +1,11 @@
 import os
 import time
 import pyautogui
+import cv2
+import numpy as np
+
+from Tools import appSettings
+from Tools import winTools as wt
 
 def _resource_path(relative_path: str) -> str:
     """
@@ -46,21 +51,68 @@ def _screen_region_to_screenshot_region(region):
     sheight = max(1, int(h * scale_y))
     return (sx, sy, swidth, sheight)
 
+
+def _locate_on_screen_fast(img_path: str, confidence: float, grayscale: bool, region: tuple | None = None):
+    template_flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    template = cv2.imread(img_path, template_flag)
+    if template is None:
+        return None
+
+    if region is None:
+        sw, sh = pyautogui.size()
+        region = (0, 0, int(sw), int(sh))
+
+    screen_img = wt.screenshot_region(region)
+    if screen_img is None or screen_img.size == 0:
+        return None
+
+    if grayscale:
+        haystack = cv2.cvtColor(screen_img, cv2.COLOR_BGR2GRAY)
+    else:
+        haystack = screen_img
+
+    th, tw = template.shape[:2]
+    hh, hw = haystack.shape[:2]
+    if th > hh or tw > hw:
+        return None
+
+    result = cv2.matchTemplate(haystack, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    if max_val < confidence:
+        return None
+
+    rx, ry, _, _ = region
+    return (int(rx + max_loc[0]), int(ry + max_loc[1]), int(tw), int(th))
+
+
+def _locate_image(img_path: str, confidence: float, grayscale: bool, region: tuple | None = None):
+    if appSettings.get_bool("USE_FAST_IMAGE_DETECTION", "USE_MSS", default=False):
+        return _locate_on_screen_fast(
+            img_path,
+            confidence=confidence,
+            grayscale=grayscale,
+            region=region,
+        )
+
+    search_region = _screen_region_to_screenshot_region(region)
+    if search_region is None:
+        return pyautogui.locateOnScreen(
+            img_path,
+            grayscale=grayscale,
+            confidence=confidence,
+        )
+
+    return pyautogui.locateOnScreen(
+        img_path,
+        grayscale=grayscale,
+        confidence=confidence,
+        region=search_region,
+    )
+
 def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
     try:
         img_path = _resource_path(imageDirectory)
-        search_region = _screen_region_to_screenshot_region(region)
-
-        if search_region is None:
-            check = pyautogui.locateOnScreen(img_path, grayscale=grayscale, confidence=confidence)
-        else:
-            check = pyautogui.locateOnScreen(
-                img_path,
-                grayscale=grayscale,
-                confidence=confidence,
-                region=search_region,
-            )
-
+        check = _locate_image(img_path, confidence=confidence, grayscale=grayscale, region=region)
         return check is not None
 
     except Exception:
@@ -69,32 +121,31 @@ def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: 
 def click_image(imageDirectory, confidence, grayscale, offset=(0, 0), region=None):
     try:
         img_path = _resource_path(imageDirectory)
-        search_region = _screen_region_to_screenshot_region(region)
-
-        loc = pyautogui.locateOnScreen(
-            img_path,
-            grayscale=grayscale,
-            confidence=confidence,
-            region=search_region
-        )
+        loc = _locate_image(img_path, confidence=confidence, grayscale=grayscale, region=region)
 
         if loc is None:
             return False
 
-        cx, cy = pyautogui.center(loc)
+        if appSettings.get_bool("USE_FAST_IMAGE_DETECTION", "USE_MSS", default=False):
+            left, top, width, height = loc
+            cx = int(left + (width // 2))
+            cy = int(top + (height // 2))
+        else:
+            cx, cy = pyautogui.center(loc)
 
-        # ⭐ Retina fix here
-        cx, cy = _retina_to_screen(cx, cy)
+            # Retina fix is only needed for pyautogui locateOnScreen.
+            cx, cy = _retina_to_screen(cx, cy)
 
         ox, oy = offset
 
-        # ⭐ use YOUR stable click
         click(cx + ox, cy + oy)
 
         return True
 
     except Exception as e:
-        print("click_image error:", e)
+        if type(e).__name__ == "ImageNotFoundException":
+            return False
+        print(f"click_image error: {type(e).__name__}: {e!r}")
         return False
 
 def click(x: int, y: int, delay: float | None = None, nudge: bool = True) -> None:

@@ -11,6 +11,13 @@ import pyautogui
 import numpy as np
 import cv2
 
+from Tools import appSettings
+
+try:
+    import mss
+except Exception:
+    mss = None
+
 # Optional window listing (flaky on macOS, so keep graceful fallbacks)
 try:
     import pygetwindow as gw
@@ -342,6 +349,17 @@ def screenshot_region(region: tuple[int, int, int, int]):
     """
     try:
         x, y, w, h = region
+        if appSettings.get_bool("USE_MSS", "USE_FAST_REGION_CAPTURE", default=False) and mss is not None:
+            monitor = {
+                "left": int(x),
+                "top": int(y),
+                "width": max(1, int(w)),
+                "height": max(1, int(h)),
+            }
+            with mss.mss() as sct:
+                shot = sct.grab(monitor)
+            return cv2.cvtColor(np.array(shot), cv2.COLOR_BGRA2BGR)
+
         pil_img = pyautogui.screenshot(region=(x, y, w, h))  # PIL RGB
         img_np = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         return img_np

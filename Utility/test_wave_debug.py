@@ -1,8 +1,13 @@
 import os
+import sys
 import subprocess
 import time
 from types import SimpleNamespace
 import cv2
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from Tools import avMethods as avM
 from Tools import winTools as wt

@@ -7,6 +7,7 @@ import subprocess
 import json
 import cv2
 import numpy as np
+import mss
 
 from Tools import botTools as bt
 from Tools import winTools as wt
@@ -37,7 +38,6 @@ except Exception as e:
     print(f"[Version] Failed to load version.json: {e}")
 
 print(f"Version: {VERSION_N}")
-print("Press K to stop.")
 
 CHECK_LOOTBOX = False # Leave false for faster runs
 PLACEMENT_TIMEOUT_SECONDS = 60
@@ -46,8 +46,9 @@ ROBLOX_PLACE_ID = 16146832113
 
 PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
 
-WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
+WEBHOOK_CHECKER = True #Set to True if you want to send a webhook every time you run it
 USE_FAST_IMAGE_DETECTION = True # OpenCV template matching instead of pyautogui locate
+USE_FAST_REGION_CAPTURE = True # Use mss for wt.screenshot_region monkey-patch
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
 
@@ -381,6 +382,41 @@ def _safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
             time.sleep(retry_delay)
     print(f"[screenshot] failed after retries: {last_error}")
     return None
+
+
+_ORIGINAL_WT_SCREENSHOT_REGION = wt.screenshot_region
+
+
+def _mss_screenshot_region(region: tuple[int, int, int, int], retries: int = 3, retry_delay: float = 0.08):
+    """
+    Toggleable replacement for wt.screenshot_region().
+    Kept local to this script so it is easy to disable/remove.
+    """
+    last_error = None
+    for _ in range(max(1, retries)):
+        try:
+            x, y, w, h = region
+            monitor = {
+                "left": int(x),
+                "top": int(y),
+                "width": max(1, int(w)),
+                "height": max(1, int(h)),
+            }
+            with mss.mss() as sct:
+                shot = sct.grab(monitor)
+            img = np.array(shot)
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        except Exception as e:
+            last_error = e
+            time.sleep(retry_delay)
+
+    print(f"[mss_screenshot_region] Region {region} screenshot error: {last_error}")
+    return None
+
+
+if USE_FAST_REGION_CAPTURE:
+    wt.screenshot_region = _mss_screenshot_region
+    print("[Capture] Using mss for screenshots.")
 
 def pixel_color_seen(x: int, y: int, sample_half: int = 1):
     img = _safe_screenshot()

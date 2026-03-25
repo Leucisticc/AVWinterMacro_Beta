@@ -24,7 +24,7 @@ loss_detected = False
 ainz_unit = 'rei' # Change to your units name as you would search for it
 TWO_WB = True
 ENABLE_PERIODIC_LOSS_CHECKER = True # Checks periodically if you have lost
-LOSS_CHECK_INTERVAL_SECONDS = 20.0  # How many seconds it waits before checking again
+LOSS_CHECK_INTERVAL_SECONDS = 60.0  # How many seconds it waits before checking again
 MAX_NEGATIVE_MODIFIERS = 2 # Change this to make it more or less defficult
 
 
@@ -784,7 +784,7 @@ def place_unit(
     step_delay=0.4,
     close=False,
 ):
-    place_attempts = 15
+    place_attempts = 5
     white_ui = (235, 235, 235)
     confirm_pixel = (604, 380)
     retry_confirm_delay = 0.2
@@ -972,9 +972,6 @@ def goToStart():
     time.sleep(4)
     click(944,452, right_click=True)
     time.sleep(4)
-    
-    
-    tap('right', hold=1)
 
 def ainz_setup_spells():
     # spell_clicks = [
