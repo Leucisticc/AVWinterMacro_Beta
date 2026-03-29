@@ -46,8 +46,7 @@ ROBLOX_PLACE_ID = 16146832113
 
 PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
 
-WEBHOOK_CHECKER = True #Set to True if you want to send a webhook every time you run it
-USE_FAST_IMAGE_DETECTION = True # OpenCV template matching instead of pyautogui locate
+WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
 USE_FAST_REGION_CAPTURE = True # Use mss for wt.screenshot_region monkey-patch
 
 USE_KAGUYA = False # "its faster to lowkey not use kaguya lol" ~LoxerEx
@@ -66,6 +65,7 @@ SLOT_ONE = (499, 150, 122, 110)
 REG_SPEED = (495, 789, 570, 866)
 REG_TAK = (495, 789, 570, 866)
 HOTBAR_REGION = (470, 771, 570, 118)
+BUNNY_HB_DEBUG_REGION = HOTBAR_REGION  # Set to None to capture the full screen instead.
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
@@ -210,6 +210,17 @@ if not hasattr(Settings, "ALERT_TARGET"):
     save_json_data(data)
 else:
     Settings.ALERT_TARGET = str(Settings.ALERT_TARGET or "").strip() or "@everyone"
+
+if not hasattr(Settings, "USE_FAST_IMAGE_DETECTION"):
+    Settings.USE_FAST_IMAGE_DETECTION = False
+    data = load_json_data() or {}
+    data["USE_FAST_IMAGE_DETECTION"] = Settings.USE_FAST_IMAGE_DETECTION
+    save_json_data(data)
+else:
+    Settings.USE_FAST_IMAGE_DETECTION = _to_bool(
+        Settings.USE_FAST_IMAGE_DETECTION,
+        default=False,
+    )
 
 if not hasattr(Settings, "ENABLE_DISCONNECT_CHECKER"):
     Settings.ENABLE_DISCONNECT_CHECKER = True
@@ -416,7 +427,7 @@ def _mss_screenshot_region(region: tuple[int, int, int, int], retries: int = 3, 
 
 if USE_FAST_REGION_CAPTURE:
     wt.screenshot_region = _mss_screenshot_region
-    print("[Capture] Using mss for screenshots.")
+    print("[Capture] Using mss for wt.screenshot_region")
 
 def pixel_color_seen(x: int, y: int, sample_half: int = 1):
     img = _safe_screenshot()
@@ -1171,8 +1182,47 @@ def _load_template_image(img_path: str, grayscale: bool = False):
     return template
 
 
-def _capture_screen_for_match(grayscale: bool = False):
-    screenshot = _safe_screenshot()
+def _debug_screenshots_dir() -> Path:
+    debug_dir = Path(__file__).resolve().parent / "Screenshots"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    return debug_dir
+
+
+def _screen_region_to_screenshot_region_for_image(region, screenshot) -> tuple[int, int, int, int] | None:
+    if region is None or screenshot is None:
+        return None
+
+    x, y, w, h = region
+    sw, sh = pyautogui.size()
+    iw, ih = screenshot.size
+    if sw <= 0 or sh <= 0 or iw <= 0 or ih <= 0:
+        return region
+
+    sx = iw / sw
+    sy = ih / sh
+    return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
+
+
+def _save_debug_match_screenshot(screenshot, debug_name: str, region: tuple | None = None) -> str | None:
+    try:
+        debug_path = _debug_screenshots_dir() / debug_name
+        debug_image = screenshot
+        screenshot_region = _screen_region_to_screenshot_region_for_image(region, screenshot)
+        if screenshot_region is not None:
+            rx, ry, rw, rh = screenshot_region
+            debug_image = screenshot.crop((rx, ry, rx + rw, ry + rh))
+
+        debug_image.save(debug_path)
+        print(f"[match debug] saved screenshot: {debug_path}")
+        return str(debug_path)
+    except Exception as e:
+        print(f"[match debug] failed to save screenshot {debug_name}: {e}")
+        return None
+
+
+def _capture_screen_for_match(grayscale: bool = False, screenshot=None):
+    if screenshot is None:
+        screenshot = _safe_screenshot()
     if screenshot is None:
         return None
 
@@ -1219,12 +1269,12 @@ def _screen_region_to_screenshot_region(region):
     return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
 
 
-def _find_image_center_fast(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None):
+def _find_image_center_fast(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None, screenshot=None):
     template = _load_template_image(img_path, grayscale=grayscale)
     if template is None:
         return None, None, None
 
-    screen_img = _capture_screen_for_match(grayscale=grayscale)
+    screen_img = _capture_screen_for_match(grayscale=grayscale, screenshot=screenshot)
     if screen_img is None:
         return None, None, None
 
@@ -1266,8 +1316,32 @@ def _does_exist_fast(imageDirectory: str, confidence: float, grayscale: bool, re
     return cx is not None and cy is not None
 
 
+def _does_exist_fast_debug(
+    imageDirectory: str,
+    confidence: float,
+    grayscale: bool,
+    region: tuple | None = None,
+    debug_name: str | None = None,
+) -> bool:
+    screenshot = _safe_screenshot()
+    if screenshot is None:
+        return False
+
+    if debug_name:
+        _save_debug_match_screenshot(screenshot, debug_name, region=region)
+
+    cx, cy, _ = _find_image_center_fast(
+        imageDirectory,
+        confidence=confidence,
+        grayscale=grayscale,
+        region=region,
+        screenshot=screenshot,
+    )
+    return cx is not None and cy is not None
+
+
 def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
-    if USE_FAST_IMAGE_DETECTION:
+    if Settings.USE_FAST_IMAGE_DETECTION:
         return _does_exist_fast(
             imageDirectory,
             confidence=confidence,
@@ -1290,7 +1364,7 @@ def find_image_center(img_path: str, confidence: float = 0.8, grayscale: bool = 
     Returns (cx, cy, box) where box=(left, top, width, height), or (None, None, None) if not found.
     region is (left, top, width, height)
     """
-    if USE_FAST_IMAGE_DETECTION:
+    if Settings.USE_FAST_IMAGE_DETECTION:
         return _find_image_center_fast(
             img_path,
             confidence=confidence,
@@ -1386,7 +1460,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     for i in range(hotbar_wait_checks):
         if click_image_center(
             hb_img,
-            confidence=0.8,
+            confidence=0.6,
             grayscale=False,
             offset=(0, 0),
             region=hb_region,
@@ -1435,7 +1509,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         # Re-click hotbar icon to re-arm placement if needed
         click_image_center(
             hb_img,
-            confidence=0.8,
+            confidence=0.6,
             grayscale=False,
             offset=(0, 0),
             region=hb_region,
@@ -1479,7 +1553,7 @@ def place_hotbar_units():
     while placing:
         is_unit = False
         for unit in Settings.Units_Placeable:
-            if bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.8, grayscale=False, region=HOTBAR_REGION):
+            if bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.7, grayscale=False, region=HOTBAR_REGION):
                 if unit != "Doom":
                     is_unit = True
                     unit_pos = Settings.Unit_Positions.get(unit)
@@ -1899,14 +1973,20 @@ def main():
                 directions('1', 'rabbit')
                 tap('e')
                 tap('e')
-                quick_rts()
-                time.sleep(1.5)
-                got_mirko = True
-                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=True):
+                time.sleep(0.5)
+                if _does_exist_fast_debug(
+                    "Winter/Bunny_hb.png",
+                    confidence=0.6,
+                    grayscale=False,
+                    region=BUNNY_HB_DEBUG_REGION,
+                    debug_name="debug_bunny_hb_first_buy.png",
+                ):
                     print("Got mirko")
                     got_mirko = True
                 else:
                     print("Didnt detect mirko, retrying purchase")
+                quick_rts()
+                time.sleep(1.5)
             click(835, 226, delay =0.1) # Start Match
                         
             
@@ -1920,14 +2000,20 @@ def main():
                 print("Attempting to buy third rabbit")
                 directions('1', 'rabbit')
                 tap('e')
-                quick_rts()
-                time.sleep(1.5)
-                got_mirko_two = True
-                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=False):
+                time.sleep(0.5)
+                if _does_exist_fast_debug(
+                    "Winter/Bunny_hb.png",
+                    confidence=0.6,
+                    grayscale=False,
+                    region=BUNNY_HB_DEBUG_REGION,
+                    debug_name="debug_bunny_hb_third_buy.png",
+                ):
                     print("Got mirko")
                     got_mirko_two = True
                 else:
                     print("Didnt detect mirko, retrying purchase")
+                quick_rts()
+                time.sleep(1.5)
             place_unit('Bunny', rabbit_pos[2], close=True)
             
             #Start farms - speedwagon
@@ -1959,7 +2045,6 @@ def main():
                 while not match_restarted and g_toggle:
                     print("[Restart] Tak timeout restart...")
                     avM.restart_match()
-                    avM.restart_match()
                     time.sleep(2)
                     match_restarted = True
                 continue
@@ -1984,7 +2069,6 @@ def main():
                 match_restarted = False
                 while not match_restarted and g_toggle:
                     print("[Restart] Nami timeout restart...")
-                    avM.restart_match()
                     avM.restart_match()
                     time.sleep(2)
                     match_restarted = True

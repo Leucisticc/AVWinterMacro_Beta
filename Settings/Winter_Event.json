@@ -6,7 +6,7 @@
     "USE_NIMBUS": true,
     "AUTO_START": true,
     "USE_MSS": true,
-    "USE_FAST_IMAGE_DETECTION": true,
+    "USE_FAST_IMAGE_DETECTION": false,
     "ENABLE_WEBHOOKS": true,
     "ENABLE_FAILURE_PING": true,
     "ENABLE_DISCONNECT_CHECKER": true,
