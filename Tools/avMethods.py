@@ -74,8 +74,7 @@ def get_wave(offset: tuple[int, int] | None = None) -> int:
         wave_hits: list[list[int | float]] = []
 
         for digit in range(10):
-            # tpath = _resource_path(f"WaveRecon/{digit}.png")
-            tpath = _resource_path(f"WaveRecon2/{digit}.png")
+            tpath = _resource_path(f"WaveRecon/{digit}.png")
             template = cv2.imread(str(tpath), cv2.IMREAD_GRAYSCALE)
             if template is None:
                 continue
