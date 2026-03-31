@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Kouhaii
+# Personal use only. Commercial use prohibited.
 import webhook
 import time
 import pyautogui
