@@ -65,6 +65,14 @@ SLOT_ONE = (499, 150, 122, 110)
 REG_SPEED = (495, 789, 570, 866)
 REG_TAK = (495, 789, 570, 866)
 HOTBAR_REGION = (470, 771, 570, 118)
+HOTBAR_SLOT_REGIONS = (
+    (469, 782, 94, 89),
+    (562, 780, 95, 90),
+    (656, 776, 94, 95),
+    (748, 780, 97, 91),
+    (843, 780, 95, 93),
+    (938, 777, 95, 91),
+)
 BUNNY_HB_DEBUG_REGION = HOTBAR_REGION  # Set to None to capture the full screen instead.
 
 pyautogui.FAILSAFE = False
@@ -1441,6 +1449,76 @@ def click_image_center(
     return True
 
 
+def _match_template_score_in_region(
+    img_path: str,
+    grayscale: bool = False,
+    region: tuple | None = None,
+    screenshot=None,
+):
+    template = _load_template_image(img_path, grayscale=grayscale)
+    if template is None:
+        return None
+
+    screen_img = _capture_screen_for_match(grayscale=grayscale, screenshot=screenshot)
+    if screen_img is None:
+        return None
+
+    search_region = (
+        _screen_region_to_screenshot_region_for_image(region, screenshot)
+        if screenshot is not None
+        else _screen_region_to_screenshot_region(region)
+    )
+    if search_region is None:
+        rx = ry = 0
+        crop = screen_img
+    else:
+        rx, ry, rw, rh = search_region
+        crop = screen_img[ry:ry + rh, rx:rx + rw]
+        if crop.size == 0:
+            return None
+
+    th, tw = template.shape[:2]
+    if crop.shape[0] < th or crop.shape[1] < tw:
+        return None
+
+    result = cv2.matchTemplate(crop, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    return {
+        "score": float(max_val),
+        "box": (rx + max_loc[0], ry + max_loc[1], tw, th),
+    }
+
+
+def _detect_hotbar_unit_in_slot(
+    slot_region: tuple[int, int, int, int],
+    units: list[str],
+    confidence: float = 0.8,
+):
+    screenshot = _safe_screenshot()
+    if screenshot is None:
+        return None
+
+    best_match = None
+    for unit in units:
+        match = _match_template_score_in_region(
+            f"Winter/{unit}_hb.png",
+            grayscale=False,
+            region=slot_region,
+            screenshot=screenshot,
+        )
+        if match is None or match["score"] < confidence:
+            continue
+
+        if best_match is None or match["score"] > best_match["score"]:
+            best_match = {
+                "unit": unit,
+                "score": match["score"],
+                "box": match["box"],
+            }
+
+    return best_match
+
+
 def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, region: tuple | None = None):
     """
     Places a unit found in Winter/UNIT_hb.png at location given in pos.
@@ -1460,7 +1538,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     for i in range(hotbar_wait_checks):
         if click_image_center(
             hb_img,
-            confidence=0.6,
+            confidence=0.8,
             grayscale=False,
             offset=(0, 0),
             region=hb_region,
@@ -1476,9 +1554,9 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         return
 
     # 2) Try to place it
-    time.sleep(0.18)  # allow hotbar selection to fully arm
-    click(pos[0], pos[1], delay=0.57)
-    time.sleep(0.27)
+    time.sleep(0.2)  # allow hotbar selection to fully arm
+    click(pos[0], pos[1], delay=0.6)
+    time.sleep(0.2)
 
     # Keep attempting until the “close/back” pixel becomes white (means menu closed / placement done)
     for attempt in range(place_attempts):
@@ -1509,7 +1587,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         # Re-click hotbar icon to re-arm placement if needed
         click_image_center(
             hb_img,
-            confidence=0.6,
+            confidence=0.8,
             grayscale=False,
             offset=(0, 0),
             region=hb_region,
@@ -1547,49 +1625,75 @@ def buy_monarch():  # this just presses e until it buys monarch, use after direc
         time.sleep(0.8)
     # print("Got monarch")
 
+def place_unit_hotbar():
+    # Scans each hotbar slot left-to-right and drains matching units before moving on.
+    doom = (572, 560)
+
+    for slot_index, slot_region in enumerate(HOTBAR_SLOT_REGIONS, start=1):
+        doom_placements = 0
+        while g_toggle:
+            detected = _detect_hotbar_unit_in_slot(
+                slot_region,
+                Settings.Units_Placeable,
+                confidence=0.8,
+            )
+            if detected is None:
+                break
+
+            unit = detected["unit"]
+
+            if unit != "Doom":
+                placements_left = Settings.Unit_Placements_Left.get(unit, 0)
+                unit_pos = Settings.Unit_Positions.get(unit) or []
+                index = placements_left - 1
+
+                if placements_left <= 0 or index >= len(unit_pos):
+                    print(
+                        f"[hotbar] slot {slot_index}: {unit} detected but no placements remain."
+                    )
+                    break
+
+                place_unit(unit, unit_pos[index], region=slot_region)
+                if unit == 'Kag' and USE_KAGUYA:
+                    kag_ability = [(645, 444), (743, 817), (1091, 244)]
+                    for cl in kag_ability:
+                        if cl == (743, 817):
+                            click_image_center("Winter/Kaguya_Auto.png", confidence=0.8, grayscale=False, offset=[0,0])
+                        else:
+                            click(cl[0],cl[1],delay =0.1)
+                            time.sleep(1)
+
+                Settings.Unit_Placements_Left[unit] -= 1
+                print(
+                    f"Placed {unit} from slot {slot_index} | "
+                    f"{unit} has {Settings.Unit_Placements_Left.get(unit)} placements left."
+                )
+
+                if Settings.Unit_Placements_Left[unit] <= 0:
+                    break
+                continue
+
+            place_unit(unit, doom, region=slot_region)
+            time.sleep(2)
+            set_boss()
+            tap('z')
+            click(607, 381, delay =0.1)
+            directions('5')
+            buy_monarch()
+            quick_rts()
+            click(doom[0],doom[1],delay =0.1)
+            doom_placements += 1
+            print(f"Placed doom slayer from slot {slot_index}.")
+
+            if doom_placements >= 6:
+                print(f"[hotbar] slot {slot_index}: stopping repeated Doom placements for safety.")
+                break
+
+    click(600,380, delay =0.1)
+
+
 def place_hotbar_units():
-    # Scans and places all units in your hotbar, tracking them too
-    placing = True
-    while placing:
-        is_unit = False
-        for unit in Settings.Units_Placeable:
-            if bt.does_exist(f"Winter/{unit}_hb.png", confidence=0.7, grayscale=False, region=HOTBAR_REGION):
-                if unit != "Doom":
-                    is_unit = True
-                    unit_pos = Settings.Unit_Positions.get(unit)
-                    index = Settings.Unit_Placements_Left.get(unit)-1
-                    if index <0:
-                        is_unit = False
-                    # print(f"Placing unit {unit} {index+1} at {unit_pos}")
-                    place_unit(unit, unit_pos[index])
-                    if unit == 'Kag':
-                        if USE_KAGUYA:
-                            kag_ability = [(645, 444), (743, 817), (1091, 244)]
-                            for cl in kag_ability:
-                                if cl == (743, 817):
-                                    click_image_center("Winter/Kaguya_Auto.png", confidence=0.8, grayscale=False, offset=[0,0]) 
-                                else:
-                                    click(cl[0],cl[1],delay =0.1)
-                                    time.sleep(1)
-                else:
-                    doom = (572, 560)
-                    place_unit(unit,doom)
-                    time.sleep(2)
-                    set_boss()
-                    tap('z')
-                    click(607, 381, delay =0.1)
-                    directions('5')
-                    buy_monarch()
-                    quick_rts()
-                    click(doom[0],doom[1],delay =0.1)
-                if unit != "Doom":
-                    Settings.Unit_Placements_Left[unit]-=1
-                    print(f"Placed {unit} | {unit} has {Settings.Unit_Placements_Left.get(unit)} placements left.")
-                else:
-                    print("Placed doom slayer.")
-        if is_unit == False:
-            click(600,380, delay =0.1)
-            placing = False
+    place_unit_hotbar()
             
 def ainz_setup(unit:str): 
     '''
@@ -1974,13 +2078,7 @@ def main():
                 tap('e')
                 tap('e')
                 time.sleep(0.5)
-                if _does_exist_fast_debug(
-                    "Winter/Bunny_hb.png",
-                    confidence=0.6,
-                    grayscale=False,
-                    region=BUNNY_HB_DEBUG_REGION,
-                    debug_name="debug_bunny_hb_first_buy.png",
-                ):
+                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=False,region=HOTBAR_REGION):
                     print("Got mirko")
                     got_mirko = True
                 else:
@@ -2001,13 +2099,7 @@ def main():
                 directions('1', 'rabbit')
                 tap('e')
                 time.sleep(0.5)
-                if _does_exist_fast_debug(
-                    "Winter/Bunny_hb.png",
-                    confidence=0.6,
-                    grayscale=False,
-                    region=BUNNY_HB_DEBUG_REGION,
-                    debug_name="debug_bunny_hb_third_buy.png",
-                ):
+                if bt.does_exist("Winter/Bunny_hb.png",confidence=0.5,grayscale=False,region=HOTBAR_REGION):
                     print("Got mirko")
                     got_mirko_two = True
                 else:
@@ -2023,7 +2115,7 @@ def main():
             tap('e')
             
             
-            
+    
             place_unit('Speed', speed_pos[0], close=False)
             tap('z')
             place_unit('Speed', speed_pos[1], close=False)
@@ -2424,6 +2516,8 @@ def main():
 
                 if is_done and ainzplaced and Erza_Buff:
                     gamble_done = True
+                elif avM.get_wave()>=80:
+                    gamble_done = True
 
                 time.sleep(0.1)
 
@@ -2798,8 +2892,6 @@ def main():
 
                 print("[Restart] Attempting restart...")
                 avM.restart_match()
-                avM.restart_match()
-
                 time.sleep(4)
                 
                 # Prefer UI confirmation over wave OCR

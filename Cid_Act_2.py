@@ -43,7 +43,7 @@ elif TEAM == 2:
         "hb1": {"name": "Ichigo", "hotbar": (520, 826), "pos": (682, 512)},
         "hb2": {"name": "Sakura", "hotbar": (615, 826), "pos": (711, 537)},
         "hb3": {"name": "Skele", "hotbar": (710, 826), "pos": (605, 509)},
-        "hb4": {"name": "Rukia", "hotbar": (800, 826), "pos": (639, 373)},
+        "hb4": {"name": "Alucard", "hotbar": (800, 826), "pos": (639, 373)},
         "hb5": {"name": "Aki", "hotbar": (895, 826), "pos": (688, 546)},
         "hb6": {"name": "Future Gohan", "hotbar": (895, 826), "pos": (688, 546)},
     }
@@ -135,11 +135,21 @@ def _safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
     print(f"[screenshot] failed after retries: {last_error}")
     return None
 
-def pixel_matches_seen(x: int, y: int, rgb: tuple[int, int, int], tol: int = 20, sample_half: int = 1) -> bool:
+def pixel_color_seen(x: int, y: int, sample_half: int = 1):
+    """
+    Return the RGB color seen at a pyautogui point using the same
+    coordinate-to-screenshot scaling and median sampling as mouseDebugging.
+    """
     img = _safe_screenshot()
     if img is None:
+        return None
+    return _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
+
+def pixel_matches_seen(x: int, y: int, rgb: tuple[int, int, int], tol: int = 20, sample_half: int = 1) -> bool:
+    seen = pixel_color_seen(x, y, sample_half=sample_half)
+    if seen is None:
         return False
-    r, g, b = _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
+    r, g, b = seen
     return (abs(r - rgb[0]) <= tol and abs(g - rgb[1]) <= tol and abs(b - rgb[2]) <= tol)
 
 def click(x, y=None, delay=None, right_click=False, dont_move=False):
@@ -305,11 +315,10 @@ def enable_auto_start():
     click(1223,269,delay=0.2)
     time.sleep(1)
     click(750,286,delay=0.2)
-    
-        
-    
-    click(1180,587)
-def wait_end(total_runs, delay: float = 0.5, timeout: float = 180.0):
+
+def critical_failure():
+    click(100,100)
+def wait_end(total_runs, delay: float = 0.5, timeout: float = 15.0):
     global failed_runs
     global failed_matches
     end_time = time.time() + timeout
@@ -334,6 +343,7 @@ def wait_end(total_runs, delay: float = 0.5, timeout: float = 180.0):
             print(f"replay detect error: {e}")
         time.sleep(delay)
     print("❌ Replay button NOT detected (timeout)")
+    critical_failure()
     return "timeout", total_runs
 
 def _roblox_window_screenshot_for_webhook():
@@ -545,7 +555,9 @@ def cid_farm2():
         place_unit(UNITS["hb3"])
         time.sleep(3.4)
         place_unit(UNITS["hb1"])
-        time.sleep(2.4)
+        time.sleep(2.6)
+        # while pixel_matches_seen(*UNITS["hb5"]["hotbar"], (35, 35, 35), tol=20, sample_half=0):
+        #     time.sleep(0.1)
         place_unit(UNITS["hb5"])
         time.sleep(0.1)
         place_unit(UNITS["hb2"])
@@ -569,23 +581,26 @@ def cid_farm2():
         for i in range(2):
             tap('r')
             time.sleep(0.2)
-        time.sleep(4)
+        time.sleep(0.2)
         for i in range(2):
             tap('x')
             time.sleep(0.2)
-        click(CLOSE_POS)
-        time.sleep(3)
-        # place_unit(UNITS["hb4"], close=True)
-        # time.sleep(0.3)
-        click(UNITS["hb3"]["pos"])
-        time.sleep(1.5)
-        click(ABILITY_POS_2, delay=0.2)
+        while bt.does_exist("Cid_Health.png", confidence=0.7, grayscale=False, region=(555,235,125,27)):
+            time.sleep(0.1)
         time.sleep(0.2)
-        click(ABILITY_POS_2, delay=0.2)
-        time.sleep(0.3)
-        click(ABILITY_POS_2, delay=0.2)
-        time.sleep(0.3)
-        click(ABILITY_POS_2, delay=0.2)
+        click(CLOSE_POS)
+        while pixel_matches_seen(*UNITS["hb4"]["hotbar"], (35, 35, 35), tol=20, sample_half=0):
+            time.sleep(0.1)
+        place_unit(UNITS["hb4"], click_delay=0.6, step_delay=0.15, close=True)
+        time.sleep(0.5)
+        click(UNITS["hb3"]["pos"])
+        time.sleep(0.4)
+        for i in range(4):
+            click(ABILITY_POS_2, delay=0.2)
+            time.sleep(0.1)
+        # while avM.get_wave() >= 2:
+        #     click(ABILITY_POS_2, delay=0.2)
+        #     time.sleep(0.2)
         end_state, total_runs = wait_end(total_runs)
         if end_state == "win":
             if total_runs==0:
