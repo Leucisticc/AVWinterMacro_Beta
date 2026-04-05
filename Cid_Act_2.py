@@ -17,10 +17,9 @@ from Tools.gameHelpers import (
 # Ichigo, Sakura, Skele, Rukia, Aki, Gohan
 # ================================================== #
 
-TEAM = 1
-
-
-RUNS_BEFORE_REJOIN = 250
+TEAM = 1 # Select the team you want
+SKELE_WAIT_SECONDS = 1 # If skele king is nuking too early, make this higher
+RUNS_BEFORE_REJOIN = 250 # Cid match gets laggy around 400 so it rejoins after this amount of runs.
 
 
 GEMS_PER_WIN = 150
@@ -32,6 +31,7 @@ ABILITY_POS = (645,450)
 ABILITY_POS_2 = (645, 520)
 REPLAY_POS = (590,710) #(697,712)
 REPLAY_IMG = "Replay.png"
+SELL_POS = (260,620)
 
 #520, 615, 710, 800, 895, 985
 if TEAM == 1:
@@ -51,7 +51,8 @@ if TEAM == 1:
         "hb1": {"name": "Ichigo", "hotbar": (520, 826), "pos": (805, 399)},
         "hb2": {"name": "Sakura", "hotbar": (615, 826), "pos": (829, 338)},
         "hb3": {"name": "Skele", "hotbar": (710, 826), "pos": (738, 399)},
-        "hb4": {"name": "Alucard", "hotbar": (800, 826), "pos": (735, 333)},
+        # "hb4": {"name": "Alucard", "hotbar": (800, 826), "pos": (735, 333)},
+        "hb4": {"name": "Alucard", "hotbar": (800, 826), "pos": (1003,436)},
         "hb5": {"name": "Rukia", "hotbar": (895, 826), "pos": (688, 546)},
         "hb6": {"name": "Future Gohan", "hotbar": (895, 826), "pos": (688, 546)},
     }
@@ -255,23 +256,27 @@ def enable_auto_start():
     time.sleep(1)
     click(750,286,delay=0.2)
 
-def wait_end(total_runs, delay: float = 0.2, timeout: float = 15.0):
+def wait_end(total_runs, delay: float = 0.2, timeout: float = 20.0):
     global failed_runs
     global failed_matches
     result_region = (380, 257, 120, 55)
     end_time = time.time() + timeout
     while time.time() < end_time:
         try:
-            screenshot = _safe_screenshot()
-            if screenshot is None:
-                time.sleep(delay)
-                continue
-
-            if bt.does_exist("Victory.png",confidence=0.7,grayscale=False,region=result_region):
+            click(ABILITY_POS_2, delay=0.2)
+            time.sleep(0.1)
+            # screenshot = _safe_screenshot()
+            # if screenshot is None:
+            #     time.sleep(delay)
+            #     continue
+        
+            # if bt.does_exist("Victory.png",confidence=0.7,grayscale=False,region=result_region):
+            if pixel_matches_at(650,270,(240,178,62),tol=20,sample_half=1):
                 print("✅ Win detected")
                 failed_runs = 0
                 return "win", total_runs
-            elif bt.does_exist("Failed.png",confidence=0.7,grayscale=False,region=result_region):
+            # elif bt.does_exist("Failed.png",confidence=0.7,grayscale=False,region=result_region):
+            elif pixel_matches_at(650,270,(234,62,53), tol=20, sample_half=1):
                 print("❌ Failure detected")
                 failed_runs+=1
                 if failed_runs>=2:
@@ -337,35 +342,43 @@ def cid_farm():
         
         if TEAM == 1:
             place_unit_hotkey(UNITS["hb3"],click_delay=0.2)
-            time.sleep(0.2)
-            place_unit_hotkey(UNITS["hb1"])
             time.sleep(0.1)
+            place_unit_hotkey(UNITS["hb1"])
+            time.sleep(0.2)
             click(UNITS["hb3"]["pos"])
             time.sleep(0.2)
             click(ABILITY_POS, delay=0.2)
             time.sleep(3)
             spam_chord_for_duration(duration=2)
             click(SKELE_KING_CLOSE)
-            time.sleep(1.6)
+            time.sleep(1.7)
             place_unit_hotkey(UNITS["hb4"])
             time.sleep(0.1)
+            for i in range(2):
+                tap('r')
+                time.sleep(0.1)
             place_unit_hotkey(UNITS["hb2"])
             time.sleep(0.1)
             temp = 0
-            while pixel_matches_at(975,142,(103,219,81),tol=20,sample_half=1):
+            while pixel_matches_at(975,140,(103,219,81),tol=20,sample_half=1):
+                # print("Stock 1")
                 if temp>=1:
                     click(UNITS["hb2"]["pos"])
                     time.sleep(0.1)
                 click(ABILITY_POS, delay=0.2)
                 time.sleep(0.1)
                 click(UNITS["hb1"]["pos"])
-                time.sleep(0.15)
+                time.sleep(0.3)
                 temp += 1
-            click(UNITS["hb2"]["pos"])
-            time.sleep(0.2)
-            click(ABILITY_POS, delay=0.2)
-            time.sleep(0.1)
-            click(UNITS["hb3"]["pos"])
+            while pixel_matches_at(830,140,(103,219,81),tol=20,sample_half=1):
+                # print("Stock 2")
+                click(UNITS["hb2"]["pos"])
+                time.sleep(0.1)
+                click(ABILITY_POS, delay=0.2)
+                time.sleep(0.1)
+                click(UNITS["hb3"]["pos"])
+                time.sleep(0.3)
+                temp+=1
             # tap('f')
             # time.sleep(0.7)
             # click_image_center("Gohan2.png",confidence=0.7,grayscale=True,region=(814, 283, 470, 430), delay=0.03, retries=2)
@@ -376,21 +389,23 @@ def cid_farm():
             time.sleep(0.2)
             tap('x')
             time.sleep(0.2)
+            tap('r')
+            time.sleep(0.3)
             click(UNITS["hb1"]["pos"])
             time.sleep(0.2)
             tap('r')
-            time.sleep(0.3)
-            for i in range(2):
-                tap('x')
-                time.sleep(0.3)
+            temp_sec = 0
             while bt.does_exist("Cid_Health.png", confidence=0.7, grayscale=False, region=(555,235,125,27)):
                 time.sleep(0.1)
+                temp_sec += 0.1
+            if temp_sec<2:
+                # print(2-temp_sec)
+                time.sleep(2-temp_sec)
+            for i in range(2):
+                tap('x')
+                time.sleep(0.2)
             click(UNITS["hb3"]["pos"])
-            time.sleep(4.3)
-            for i in range(10):
-                click(ABILITY_POS_2, delay=0.2)
-                time.sleep(0.1)
-            
+            time.sleep(SKELE_WAIT_SECONDS)
             
             
             
@@ -451,11 +466,19 @@ def cid_farm():
                 enable_auto_start()
             wins += 1
             total_runs += 1
+            if total_runs == 1:
+                session_start = datetime.now()
+                wins = 0
+                losses = 0
             send_run_webhook(session_start=session_start, wins=wins, losses=losses)
             print(f"Runs: {wins+losses} | Wins: {wins} | Losses: {losses} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
         elif end_state == "fail":
             losses += 1
             total_runs += 1
+            if total_runs == 1:
+                session_start = datetime.now()
+                wins = 0
+                losses = 0
             send_run_webhook(
                 session_start=session_start,
                 wins=wins,

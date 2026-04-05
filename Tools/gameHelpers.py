@@ -7,8 +7,7 @@ from pynput.keyboard import Controller
 
 from Tools import botTools as bt
 from Tools import winTools as wt
-from Tools.screenHelpers import _safe_screenshot, _retina_to_screen_coords_from_image
-from Tools.imageHelpers import find_image_center, _resolve_image_path
+from Tools.imageHelpers import _resolve_image_path
 
 keyboard_controller = Controller()
 
@@ -53,39 +52,31 @@ def click_image_center(
     retries: int = 2,
     retry_delay: float = 0.05,
 ):
-    last_error = None
-    cx = cy = None
-    screenshot = None
-    for _ in range(max(1, retries)):
+    resolved = _resolve_image_path(img_path)
+
+    for attempt in range(max(1, retries)):
         try:
-            screenshot = _safe_screenshot()
-            cx, cy, _ = find_image_center(
-                img_path,
-                confidence=confidence,
-                grayscale=grayscale,
-                region=region,
-                screenshot=screenshot,
-            )
-            if cx is not None and cy is not None:
-                break
-        except Exception as e:
-            last_error = e
-            break
-        time.sleep(retry_delay)
+            loc = bt._locate_image(resolved, confidence=confidence, grayscale=grayscale, region=region)
+        except Exception:
+            loc = None
 
-    if cx is None or cy is None:
-        if last_error is not None:
-            resolved = _resolve_image_path(img_path)
-            if not Path(resolved).is_file():
-                print(f"[click_image_center] image file not found: {img_path}")
+        if loc is not None:
+            if bt.appSettings.get_bool("USE_FAST_IMAGE_DETECTION", "USE_MSS", default=False):
+                left, top, width, height = loc
+                cx = int(left + width // 2)
+                cy = int(top + height // 2)
             else:
-                print(f"[click_image_center] locate failed for {img_path}: {last_error}")
-        return False
+                cx, cy = pyautogui.center(loc)
+                cx, cy = bt._retina_to_screen(cx, cy)
 
-    cx, cy = _retina_to_screen_coords_from_image(cx, cy, screenshot)
-    ox, oy = offset if offset is not None else (0, 0)
-    click(cx + int(ox), cy + int(oy), delay=delay, right_click=right_click)
-    return True
+            ox, oy = offset if offset is not None else (0, 0)
+            click(cx + int(ox), cy + int(oy), delay=delay, right_click=right_click)
+            return True
+
+        if attempt < retries - 1:
+            time.sleep(retry_delay)
+
+    return False
 
 
 # -------------------------
