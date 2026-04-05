@@ -19,6 +19,7 @@ from Tools.gameHelpers import (
 
 TEAM = 1 # Select the team you want
 SKELE_WAIT_SECONDS = 1 # If skele king is nuking too early, make this higher
+CONSISTENT_NUKE = False # Set to true to guarrantee the nuke is used on the boss (more consistent but might be 1-2 seconds slower)
 RUNS_BEFORE_REJOIN = 250 # Cid match gets laggy around 400 so it rejoins after this amount of runs.
 
 
@@ -405,7 +406,12 @@ def cid_farm():
                 tap('x')
                 time.sleep(0.2)
             click(UNITS["hb3"]["pos"])
-            time.sleep(SKELE_WAIT_SECONDS)
+            if CONSISTENT_NUKE:
+                while not bt.does_exist("Cid_Health.png", confidence=0.7, grayscale=False, region=(555,235,125,27)):
+                    time.sleep(0.1)
+            else:
+                time.sleep(SKELE_WAIT_SECONDS)
+            
             
             
             
