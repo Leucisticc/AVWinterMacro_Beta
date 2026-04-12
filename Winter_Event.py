@@ -458,7 +458,7 @@ def setup_cam():
         click(pt[0], pt[1], delay=1)
         time.sleep(1 if pt == (649, 772) else 0.3)
     time.sleep(0.5)
-    click(607, 381, delay =0.1)
+    click(607, 383, delay =0.1)
     time.sleep(0.5)
     press('o'); time.sleep(1); release('o')
     quick_rts()
@@ -1082,7 +1082,7 @@ def secure_select(pos: tuple[int, int]):
     attempts = 5
 
     # Wait until the “selected” UI pixel is white
-    while not pixel_matches_at(604, 381, (255, 255, 255), tol=25, sample_half=1) and attempts<=0:
+    while not pixel_matches_at(604, 383, (255, 255, 255), tol=25, sample_half=1) and attempts<=0:
         attempts -= 1
         print(f"Attempts to select: {attempts}")
         if bt.does_exist('Winter/Erza_Armor.png', confidence=0.8, grayscale=True):
@@ -1236,7 +1236,7 @@ def _detect_hotbar_unit_in_slot(
     return detect_unit_in_slot(slot_region, units, confidence)
 
 
-def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, region: tuple | None = None):
+def place_unit(unit: str, pos: tuple[int, int], upgrade: bool | None = None, close: bool | None = None, region: tuple | None = None):
     """
     Places a unit found in Winter/UNIT_hb.png at location given in pos.
     mac/Retina-safe: uses screenshot-based pixel checks.
@@ -1246,7 +1246,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     place_attempts = 15
     hotbar_wait_checks = 20
     hotbar_poll_delay = 0.04
-    white_ui = (255, 255, 255)
+    white_ui = (235, 235, 235)
     hb_region = region if region is not None else HOTBAR_REGION
 
     # 1) Find and arm hotbar icon (bounded to hotbar region for speed)
@@ -1281,7 +1281,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
 
     # Keep attempting until the “close/back” pixel becomes white (means menu closed / placement done)
     for attempt in range(place_attempts):
-        if pixel_matches_at(604, 381, white_ui, tol=25, sample_half=1):
+        if pixel_matches_at(604, 383, white_ui, tol=25, sample_half=1):
             break
         if attempt == place_attempts - 1:
             print("timed out")
@@ -1302,7 +1302,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
             break
 
         # If we *now* see the UI pixel is white, also done
-        if pixel_matches_at(604, 381, white_ui, tol=25, sample_half=1):
+        if pixel_matches_at(604, 383, white_ui, tol=25, sample_half=1):
             break
 
         # Re-click hotbar icon to re-arm placement if needed
@@ -1318,6 +1318,9 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
         )
         time.sleep(0.12)
 
+    if upgrade:
+        tap('z')
+        time.sleep(0.2)
     if close:
         click(607, 381, delay =0.1)
 
@@ -1439,7 +1442,8 @@ def ainz_setup(unit:str):
             while not bt.does_exist("Winter/CaloricThing.png",confidence=0.8,grayscale=False):
                 time.sleep(0.5)
             print(f"Placing unit {unit}")
-        click(i[0],i[1],delay =0.1)
+        while not pixel_matches_at(604, 383,(255,255,255), tol=25, sample_half=0):
+            click(i[0],i[1],delay =0.1)
     
         time.sleep(1)
         
@@ -1743,6 +1747,7 @@ def main():
                 tap('e')
                 tap('e')
                 time.sleep(0.5)
+                refresh_hotbar_hover()
                 if bt.does_exist("Winter/Bunny_hb.png",confidence=0.7,grayscale=False,region=HOTBAR_REGION):
                     print("Got mirko")
                     got_mirko = True
@@ -1781,12 +1786,9 @@ def main():
             
             
     
-            place_unit('Speed', speed_pos[0], close=False)
-            tap('z')
-            place_unit('Speed', speed_pos[1], close=False)
-            tap('z')
-            place_unit('Speed', speed_pos[2], close=False)
-            tap('z')
+            place_unit('Speed', speed_pos[0], upgrade = True, close=False)
+            place_unit('Speed', speed_pos[1], upgrade = True, close=False)
+            place_unit('Speed', speed_pos[2], upgrade = True, close=False)
             click(607, 381, delay =0.1)
             
             # Tak's placement + max
@@ -1996,7 +1998,7 @@ def main():
                     time.sleep(0.5)
 
                     if Settings.USE_WD == True:
-                        ainz_setup(unit="world des")
+                        ainz_setup(unit="world")
                     elif Settings.USE_DIO == True:
                         ainz_setup(unit="god")
                     elif USE_BUU:
