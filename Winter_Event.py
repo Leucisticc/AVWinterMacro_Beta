@@ -1,5 +1,3 @@
-# Copyright (c) 2026 Kouhaii
-# Personal use only. Commercial use prohibited.
 import webhook
 import time
 import pyautogui
@@ -14,6 +12,9 @@ import mss
 from Tools import botTools as bt
 from Tools import winTools as wt
 from Tools import avMethods as avM
+from Tools.screenHelpers import _safe_screenshot, _seen_pixel_from_screenshot, _retina_to_screen_coords, _screen_region_to_screenshot_region, pixel_matches_at, _mss, _get_backing_scale
+from Utility.detect_hotbar_images import detect_unit_in_slot
+from Tools.gameHelpers import kill, focus_roblox, ensure_roblox_window_positioned, _roblox_window_screenshot_for_webhook, _osascript, quick_rts
 
 
 from datetime import datetime
@@ -41,12 +42,13 @@ except Exception as e:
 
 print(f"Version: {VERSION_N}")
 
+#Caloric position 1: 821,475
 CHECK_LOOTBOX = False # Leave false for faster runs
 PLACEMENT_TIMEOUT_SECONDS = 60
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "39534321779207670527898821021810" # Not in settings so u dont accidently share ur ps lol
 
 WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
 USE_FAST_REGION_CAPTURE = True # Use mss for wt.screenshot_region monkey-patch
@@ -84,7 +86,7 @@ g_toggle = False
 total_screenshot_count = 0
 _screenshot_count_guard = local()
 _screenshot_counter_installed = False
-_template_cache: dict[tuple[str, bool], np.ndarray | None] = {}
+
 
 # Info_Path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Info.json")
 
@@ -222,7 +224,7 @@ else:
     Settings.ALERT_TARGET = str(Settings.ALERT_TARGET or "").strip() or "@everyone"
 
 if not hasattr(Settings, "USE_FAST_IMAGE_DETECTION"):
-    Settings.USE_FAST_IMAGE_DETECTION = False
+    Settings.USE_FAST_IMAGE_DETECTION = True
     data = load_json_data() or {}
     data["USE_FAST_IMAGE_DETECTION"] = Settings.USE_FAST_IMAGE_DETECTION
     save_json_data(data)
@@ -282,9 +284,6 @@ if not USE_KAGUYA:
 
 # Session-only stats: reset counters every time this script starts.
 reset_runtime_stats()
-
-def kill():
-    os._exit(0)
 
 def toggle_run_state():
     global g_toggle
@@ -353,57 +352,29 @@ def write_text(text, interval=0.5):
 def scroll(amount):
     pyautogui.scroll(amount)
 
+
+def refresh_hotbar_hover(
+    slot_regions: tuple[tuple[int, int, int, int], ...] = HOTBAR_SLOT_REGIONS,
+    hover_delay: float = 0.025,
+    restore_mouse: bool = False,
+):
+    """
+    Sweep the mouse across every hotbar slot to force Roblox to refresh slot hover state.
+    This helps when the slot visuals shrink until the cursor passes over them again.
+    """
+    original_pos = pyautogui.position() if restore_mouse else None
+
+    for x, y, w, h in slot_regions:
+        pyautogui.moveTo(x + (w // 2), y + (h // 2))
+        time.sleep(hover_delay)
+
+    if restore_mouse and original_pos is not None:
+        pyautogui.moveTo(original_pos.x, original_pos.y)
+        time.sleep(hover_delay)
+
 # -------------------------
 # Screenshot Capture and Pixel Detection (Mac Rendering Layer)
 # -------------------------
-
-def _seen_pixel_from_screenshot(img, x: int, y: int, sample_half: int = 1):
-    # Map pyautogui coords -> screenshot pixel coords using THIS screenshot
-    sw, sh = pyautogui.size()
-    iw, ih = img.size
-    sx = iw / sw
-    sy = ih / sh
-
-    xp = int(x * sx)
-    yp = int(y * sy)
-
-    w, h = img.size
-    left = max(0, xp - sample_half)
-    top = max(0, yp - sample_half)
-    right = min(w - 1, xp + sample_half)
-    bottom = min(h - 1, yp + sample_half)
-
-    px = []
-    for yy in range(top, bottom + 1):
-        for xx in range(left, right + 1):
-            p = img.getpixel((xx, yy))
-            if isinstance(p, tuple) and len(p) >= 3:
-                px.append((p[0], p[1], p[2]))
-
-    if not px:
-        return (0, 0, 0)
-
-    # median per channel
-    rs = sorted(p[0] for p in px)
-    gs = sorted(p[1] for p in px)
-    bs = sorted(p[2] for p in px)
-    mid = len(px) // 2
-    return (rs[mid], gs[mid], bs[mid])
-
-def _safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
-    """
-    Best-effort screenshot helper for macOS capture flakiness.
-    Returns a PIL image or None.
-    """
-    for _ in range(max(1, retries)):
-        try:
-            return pyautogui.screenshot()
-        except Exception as e:
-            last_error = e
-            time.sleep(retry_delay)
-    print(f"[screenshot] failed after retries: {last_error}")
-    return None
-
 
 _ORIGINAL_WT_SCREENSHOT_REGION = wt.screenshot_region
 
@@ -423,8 +394,11 @@ def _mss_screenshot_region(region: tuple[int, int, int, int], retries: int = 3, 
                 "width": max(1, int(w)),
                 "height": max(1, int(h)),
             }
-            with mss.mss() as sct:
-                shot = sct.grab(monitor)
+            if _mss is not None:
+                shot = _mss.grab(monitor)
+            else:
+                with mss.mss() as tmp:
+                    shot = tmp.grab(monitor)
             img = np.array(shot)
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         except Exception as e:
@@ -439,31 +413,11 @@ if USE_FAST_REGION_CAPTURE:
     wt.screenshot_region = _mss_screenshot_region
     print("[Capture] Using mss for wt.screenshot_region")
 
-def pixel_color_seen(x: int, y: int, sample_half: int = 1):
-    img = _safe_screenshot()
+def pixel_color_seen(x: int, y: int, sample_half: int = 1, screenshot=None):
+    img = screenshot if screenshot is not None else _safe_screenshot()
     if img is None:
         return (0, 0, 0)
     return _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
-
-def pixel_matches_seen(x: int, y: int, rgb: tuple[int, int, int], tol: int = 20, sample_half: int = 1) -> bool:
-    img = _safe_screenshot()
-    if img is None:
-        return False
-    r, g, b = _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
-    return (abs(r - rgb[0]) <= tol and abs(g - rgb[1]) <= tol and abs(b - rgb[2]) <= tol)
-
-def wait_for_pixel(x: int,y: int,rgb: tuple[int, int, int],tol: int = 20,timeout: float = 10.0,interval: float = 0.1,sample_half: int = 1) -> bool:
-
-    start = time.time()
-
-    while time.time() - start < timeout:
-
-        if pixel_matches_seen(x, y, rgb,tol=tol,sample_half=sample_half):
-            return True
-
-        time.sleep(interval)
-
-    return False
 
 def setup_cam():
     focus_roblox()
@@ -503,6 +457,8 @@ def setup_cam():
     for pt in clicks_look_down:
         click(pt[0], pt[1], delay=1)
         time.sleep(1 if pt == (649, 772) else 0.3)
+    time.sleep(0.5)
+    click(607, 381, delay =0.1)
     time.sleep(0.5)
     press('o'); time.sleep(1); release('o')
     quick_rts()
@@ -624,18 +580,19 @@ def on_disconnect():
         print(f"[Disconnect] Window resize/move error: {e}")
 
     while not bt.does_exist("AreaIcon.png", confidence=0.8, grayscale=False):
-        if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+        if pixel_matches_at(1085, 321, (255, 255, 255), tol=5):
             click(1083, 321, delay=0.1)
         time.sleep(1)
 
     time.sleep(1)
-    if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+    if pixel_matches_at(1085, 321, (255, 255, 255), tol=5):
         click(1083, 321, delay=0.1)
 
     click_image_center("AreaIcon.png", confidence=0.8, grayscale=False, offset=(0, 0))
     time.sleep(3)
 
     open_menu = False
+    walked_to_menu = False
     spam_thread_started = False
 
     def spam_e():
@@ -644,25 +601,29 @@ def on_disconnect():
             time.sleep(0.2)
 
     while not open_menu:
-        click(656, 764, delay=0.1)
+        click(995, 783, delay=0.1)
         time.sleep(1)
-        press('a')
-        time.sleep(1)
-        release('a')
+
+        if not walked_to_menu:
+            press('s')
+            time.sleep(4.8)
+            release('s')
+
+            walked_to_menu = True
 
         if not spam_thread_started:
             Thread(target=spam_e, daemon=True).start()
             spam_thread_started = True
+
+        press('s')
+        time.sleep(2)
+        release('s')
             
-        press('a')
-        time.sleep(1)
-        release('a')
-            
-        if pixel_matches_seen(888, 269, (165, 232, 235), tol=30):
+        if pixel_matches_at(888, 269, (165, 232, 235), tol=30):
             open_menu = True
 
         if not open_menu:
-            if pixel_matches_seen(1085, 321, (255, 255, 255), tol=5):
+            if pixel_matches_at(1085, 321, (255, 255, 255), tol=5):
                 click(1083, 321, delay=0.1)
             click_image_center("AreaIcon.png", confidence=0.8, grayscale=False, offset=(0, 0))
 
@@ -676,15 +637,20 @@ def on_disconnect():
     time.sleep(2)
     click(301, 676, delay=0.1)
     time.sleep(10)
+    
+    
     wait_start()
+    time.sleep(1)
+    click(405,160,delay=0.2)
+    time.sleep(1)
+    click(405,160,delay=0.2)
+    time.sleep(1)
     click(835, 226, delay =0.1) # Start Match
     setup_cam()
     time.sleep(0.5)
     click(483, 536, delay=0.2)
     time.sleep(1)
-    click(405,160,delay=0.2)
-    time.sleep(1)
-    click(405,160,delay=0.2)
+    click(483, 464, delay=0.2)
     time.sleep(1)
     avM.restart_match()
     
@@ -702,7 +668,7 @@ def wait_start(delay: int | None = None):
             # seen = pixel_color_seen(816, 231, sample_half=2)  # 5x5 median
             # print(f"Looking for start screen: Seen = {seen}")
 
-            if bt.does_exist("VoteStart.png", confidence=0.7, grayscale=False, region=(767, 189, 127,83)) or pixel_matches_seen(816, 231, target, tol=35, sample_half=2): 
+            if bt.does_exist("VoteStart.png", confidence=0.7, grayscale=False, region=(767, 189, 127,83)) or pixel_matches_at(816, 231, target, tol=35, sample_half=2): 
                 print("✅ Start screen detected")
                 return True
 
@@ -717,18 +683,6 @@ def wait_start(delay: int | None = None):
 
 #Game mechanics
 
-def quick_rts(): # Returns to spawn
-    locations =[(232, 873), (1153, 503), (1217, 267)]
-    for loc in locations:
-        click(loc[0], loc[1], delay =0.1)
-        time.sleep(0.2)
-        
-# def slow_rts(): # Returns to spawn
-#     locations =[(232, 873), (1153, 503), (1217, 267)]
-#     for loc in locations:
-#         click(loc[0], loc[1], delay =1)
-#         time.sleep(0.2)
-        
 def directions(area: str, unit: str | None=None): # This is for all the pathing
     '''
     This is the pathing for all the areas: 1 [rabbit, nami, hero (trash gamer)], 2 [speed, tak], 3: Mystery box, 4: Upgrader, 5: Monarch upgradern
@@ -893,7 +847,7 @@ def upgrader(upgrade: str):
 
     def seen(x, y, rgb, tol=40, sample_half=2) -> bool:
         # wrapper so we can tune tol/sample_half in one place
-        return pixel_matches_seen(x, y, rgb, tol=tol, sample_half=sample_half)
+        return pixel_matches_at(x, y, rgb, tol=tol, sample_half=sample_half)
 
     e_delay = 0.2
     timeout = 3 / e_delay
@@ -1125,10 +1079,10 @@ def upgrader(upgrade: str):
 def secure_select(pos: tuple[int, int]):
     click(pos[0], pos[1], delay =0.1)
     time.sleep(0.5)
-    attempts = 2
+    attempts = 5
 
     # Wait until the “selected” UI pixel is white
-    while not pixel_matches_seen(607, 381, (255, 255, 255), tol=25, sample_half=2) and attempts<=0:
+    while not pixel_matches_at(604, 381, (255, 255, 255), tol=25, sample_half=1) and attempts<=0:
         attempts -= 1
         print(f"Attempts to select: {attempts}")
         if bt.does_exist('Winter/Erza_Armor.png', confidence=0.8, grayscale=True):
@@ -1169,237 +1123,17 @@ def _resolve_image_path(img_path: str) -> str:
     return img_path
 
 
-def _screenshot_to_screen_coords(x: int, y: int, img_size: tuple[int, int]) -> tuple[int, int]:
-    sw, sh = pyautogui.size()
-    iw, ih = img_size
-    if iw <= 0 or ih <= 0:
-        return int(x), int(y)
-
-    scale_x = sw / iw
-    scale_y = sh / ih
-    return int(x * scale_x), int(y * scale_y)
-
-
-def _load_template_image(img_path: str, grayscale: bool = False):
-    cache_key = (img_path, grayscale)
-    if cache_key in _template_cache:
-        return _template_cache[cache_key]
-
-    template_path = _resolve_image_path(img_path)
-    read_mode = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
-    template = cv2.imread(template_path, read_mode)
-    _template_cache[cache_key] = template
-    return template
-
-
-def _debug_screenshots_dir() -> Path:
-    debug_dir = Path(__file__).resolve().parent / "Screenshots"
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    return debug_dir
-
-
-def _screen_region_to_screenshot_region_for_image(region, screenshot) -> tuple[int, int, int, int] | None:
-    if region is None or screenshot is None:
-        return None
-
-    x, y, w, h = region
-    sw, sh = pyautogui.size()
-    iw, ih = screenshot.size
-    if sw <= 0 or sh <= 0 or iw <= 0 or ih <= 0:
-        return region
-
-    sx = iw / sw
-    sy = ih / sh
-    return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
-
-
-def _save_debug_match_screenshot(screenshot, debug_name: str, region: tuple | None = None) -> str | None:
-    try:
-        debug_path = _debug_screenshots_dir() / debug_name
-        debug_image = screenshot
-        screenshot_region = _screen_region_to_screenshot_region_for_image(region, screenshot)
-        if screenshot_region is not None:
-            rx, ry, rw, rh = screenshot_region
-            debug_image = screenshot.crop((rx, ry, rx + rw, ry + rh))
-
-        debug_image.save(debug_path)
-        print(f"[match debug] saved screenshot: {debug_path}")
-        return str(debug_path)
-    except Exception as e:
-        print(f"[match debug] failed to save screenshot {debug_name}: {e}")
-        return None
-
-
-def _capture_screen_for_match(grayscale: bool = False, screenshot=None):
-    if screenshot is None:
-        screenshot = _safe_screenshot()
-    if screenshot is None:
-        return None
-
-    screen_img = np.array(screenshot)
-    if grayscale:
-        return cv2.cvtColor(screen_img, cv2.COLOR_RGB2GRAY)
-    return cv2.cvtColor(screen_img, cv2.COLOR_RGB2BGR)
-
-
-def _retina_to_screen_coords(x: int, y: int) -> tuple[int, int]:
+def find_image_center(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None, screenshot=None):
     """
-    Convert locateOnScreen/screenshot pixel coords to OS screen coords on Retina displays.
+    Returns (cx, cy, box) where box=(left, top, width, height) in screen coords, or (None, None, None).
+    Uses the same mss + backing-scale approach as botTools._locate_image.
     """
-    img = _safe_screenshot()
-    if img is None:
-        return int(x), int(y)
-
-    sw, sh = pyautogui.size()
-    iw, ih = img.size
-    if iw <= 0 or ih <= 0:
-        return int(x), int(y)
-
-    scale_x = sw / iw
-    scale_y = sh / ih
-    return int(x * scale_x), int(y * scale_y)
-
-
-def _screen_region_to_screenshot_region(region):
-    """
-    Convert screen-space region (x, y, w, h) into screenshot pixel space.
-    """
-    if region is None:
-        return None
-    x, y, w, h = region
-    img = _safe_screenshot()
-    if img is None:
-        return region
-    sw, sh = pyautogui.size()
-    iw, ih = img.size
-    if sw <= 0 or sh <= 0:
-        return region
-    sx = iw / sw
-    sy = ih / sh
-    return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
-
-
-def _find_image_center_fast(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None, screenshot=None):
-    template = _load_template_image(img_path, grayscale=grayscale)
-    if template is None:
+    resolved = _resolve_image_path(img_path)
+    loc = bt._locate_image(resolved, confidence=confidence, grayscale=grayscale, region=region)
+    if loc is None:
         return None, None, None
-
-    screen_img = _capture_screen_for_match(grayscale=grayscale, screenshot=screenshot)
-    if screen_img is None:
-        return None, None, None
-
-    search_region = _screen_region_to_screenshot_region(region)
-    if search_region is None:
-        rx = ry = 0
-        crop = screen_img
-    else:
-        rx, ry, rw, rh = search_region
-        crop = screen_img[ry:ry + rh, rx:rx + rw]
-        if crop.size == 0:
-            return None, None, None
-
-    th, tw = template.shape[:2]
-    if crop.shape[0] < th or crop.shape[1] < tw:
-        return None, None, None
-
-    result = cv2.matchTemplate(crop, template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-    if max_val < confidence:
-        return None, None, None
-
-    center_x = rx + max_loc[0] + (tw // 2)
-    center_y = ry + max_loc[1] + (th // 2)
-    box = (rx + max_loc[0], ry + max_loc[1], tw, th)
-    return int(center_x), int(center_y), box
-
-
-_ORIGINAL_BT_DOES_EXIST = bt.does_exist
-
-
-def _does_exist_fast(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
-    cx, cy, _ = _find_image_center_fast(
-        imageDirectory,
-        confidence=confidence,
-        grayscale=grayscale,
-        region=region,
-    )
-    return cx is not None and cy is not None
-
-
-def _does_exist_fast_debug(
-    imageDirectory: str,
-    confidence: float,
-    grayscale: bool,
-    region: tuple | None = None,
-    debug_name: str | None = None,
-) -> bool:
-    screenshot = _safe_screenshot()
-    if screenshot is None:
-        return False
-
-    if debug_name:
-        _save_debug_match_screenshot(screenshot, debug_name, region=region)
-
-    cx, cy, _ = _find_image_center_fast(
-        imageDirectory,
-        confidence=confidence,
-        grayscale=grayscale,
-        region=region,
-        screenshot=screenshot,
-    )
-    return cx is not None and cy is not None
-
-
-def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:
-    if Settings.USE_FAST_IMAGE_DETECTION:
-        return _does_exist_fast(
-            imageDirectory,
-            confidence=confidence,
-            grayscale=grayscale,
-            region=region,
-        )
-    return _ORIGINAL_BT_DOES_EXIST(
-        imageDirectory,
-        confidence=confidence,
-        grayscale=grayscale,
-        region=region,
-    )
-
-
-bt.does_exist = does_exist
-
-
-def find_image_center(img_path: str, confidence: float = 0.8, grayscale: bool = False, region=None):
-    """
-    Returns (cx, cy, box) where box=(left, top, width, height), or (None, None, None) if not found.
-    region is (left, top, width, height)
-    """
-    if Settings.USE_FAST_IMAGE_DETECTION:
-        return _find_image_center_fast(
-            img_path,
-            confidence=confidence,
-            grayscale=grayscale,
-            region=region,
-        )
-
-    resolved_img_path = _resolve_image_path(img_path)
-    search_region = _screen_region_to_screenshot_region(region)
-    try:
-        box = pyautogui.locateOnScreen(
-            resolved_img_path,
-            confidence=confidence,
-            grayscale=grayscale,
-            region=search_region,
-        )
-    except Exception as e:
-        # Some pyautogui/pyscreeze versions raise ImageNotFoundException instead of returning None.
-        if e.__class__.__name__ == "ImageNotFoundException":
-            return None, None, None
-        raise
-    if not box:
-        return None, None, None
-    cx, cy = pyautogui.center(box)
-    return int(cx), int(cy), box
+    left, top, w, h = loc
+    return left + w // 2, top + h // 2, loc
 
 
 def click_image_center(
@@ -1443,9 +1177,7 @@ def click_image_center(
                 print(f"[click_image_center] locate failed for {img_path}: {last_error}")
         return False
 
-    # Match botTools.click_image behavior on macOS Retina displays.
-    cx, cy = _retina_to_screen_coords(cx, cy)
-
+    # find_image_center already returns screen-space coords via bt._locate_image
     ox, oy = offset if offset is not None else (0, 0)
     click(cx + int(ox), cy + int(oy), delay=delay, right_click=right_click)
     return True
@@ -1457,24 +1189,29 @@ def _match_template_score_in_region(
     region: tuple | None = None,
     screenshot=None,
 ):
-    template = _load_template_image(img_path, grayscale=grayscale)
+    resolved = _resolve_image_path(img_path)
+    read_mode = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    template = cv2.imread(resolved, read_mode)
     if template is None:
         return None
+    scale = _get_backing_scale()
+    if scale != 1.0:
+        th_r, tw_r = template.shape[:2]
+        template = cv2.resize(template, (max(1, int(tw_r / scale)), max(1, int(th_r / scale))), interpolation=cv2.INTER_AREA)
 
-    screen_img = _capture_screen_for_match(grayscale=grayscale, screenshot=screenshot)
-    if screen_img is None:
+    if screenshot is None:
+        screenshot = _safe_screenshot()
+    if screenshot is None:
         return None
+    screen_arr = np.array(screenshot)
+    screen_img = cv2.cvtColor(screen_arr, cv2.COLOR_RGB2GRAY if grayscale else cv2.COLOR_RGB2BGR)
 
-    search_region = (
-        _screen_region_to_screenshot_region_for_image(region, screenshot)
-        if screenshot is not None
-        else _screen_region_to_screenshot_region(region)
-    )
-    if search_region is None:
+    ss_region = _screen_region_to_screenshot_region(region, screenshot=screenshot)
+    if ss_region is None:
         rx = ry = 0
         crop = screen_img
     else:
-        rx, ry, rw, rh = search_region
+        rx, ry, rw, rh = ss_region
         crop = screen_img[ry:ry + rh, rx:rx + rw]
         if crop.size == 0:
             return None
@@ -1496,29 +1233,7 @@ def _detect_hotbar_unit_in_slot(
     units: list[str],
     confidence: float = 0.8,
 ):
-    screenshot = _safe_screenshot()
-    if screenshot is None:
-        return None
-
-    best_match = None
-    for unit in units:
-        match = _match_template_score_in_region(
-            f"Winter/{unit}_hb.png",
-            grayscale=False,
-            region=slot_region,
-            screenshot=screenshot,
-        )
-        if match is None or match["score"] < confidence:
-            continue
-
-        if best_match is None or match["score"] > best_match["score"]:
-            best_match = {
-                "unit": unit,
-                "score": match["score"],
-                "box": match["box"],
-            }
-
-    return best_match
+    return detect_unit_in_slot(slot_region, units, confidence)
 
 
 def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, region: tuple | None = None):
@@ -1531,26 +1246,30 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     place_attempts = 15
     hotbar_wait_checks = 20
     hotbar_poll_delay = 0.04
-    white_ui = (235, 235, 235)
+    white_ui = (255, 255, 255)
     hb_region = region if region is not None else HOTBAR_REGION
 
     # 1) Find and arm hotbar icon (bounded to hotbar region for speed)
     armed = False
     hb_img = f"Winter/{unit}_hb.png"
-    for i in range(hotbar_wait_checks):
-        if click_image_center(
-            hb_img,
-            confidence=0.8,
-            grayscale=False,
-            offset=(0, 0),
-            region=hb_region,
-            delay=0.05,
-            retries=1,
-            retry_delay=0.0,
-        ):
-            armed = True
+    for arm_pass in range(2):
+        for i in range(hotbar_wait_checks):
+            if click_image_center(
+                hb_img,
+                confidence=0.8,
+                grayscale=False,
+                offset=(0, 0),
+                region=hb_region,
+                delay=0.05,
+                retries=1,
+                retry_delay=0.0,
+            ):
+                armed = True
+                break
+            time.sleep(hotbar_poll_delay)
+        if armed:
             break
-        time.sleep(hotbar_poll_delay)
+        refresh_hotbar_hover()
     if not armed:
         print(f"[place_unit] {unit} hotbar icon not found in time.")
         return
@@ -1562,7 +1281,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
 
     # Keep attempting until the “close/back” pixel becomes white (means menu closed / placement done)
     for attempt in range(place_attempts):
-        if pixel_matches_seen(607, 381, white_ui, tol=25, sample_half=2):
+        if pixel_matches_at(604, 381, white_ui, tol=25, sample_half=1):
             break
         if attempt == place_attempts - 1:
             print("timed out")
@@ -1583,7 +1302,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
             break
 
         # If we *now* see the UI pixel is white, also done
-        if pixel_matches_seen(607, 381, white_ui, tol=25, sample_half=2):
+        if pixel_matches_at(604, 381, white_ui, tol=25, sample_half=1):
             break
 
         # Re-click hotbar icon to re-arm placement if needed
@@ -1605,7 +1324,7 @@ def place_unit(unit: str, pos: tuple[int, int], close: bool | None = None, regio
     # print(f"Placed {unit} at {pos}")
 
 def buy_monarch():  # this just presses e until it buys monarch, use after direction('5')
-    monarch_region = (583, 508, 288, 220)
+    monarch_region = (679, 610, 146, 45)
     e_delay = 0.4
     timeout = 3/e_delay
     tap('e')
@@ -1639,6 +1358,13 @@ def place_unit_hotbar():
                 Settings.Units_Placeable,
                 confidence=0.8,
             )
+            if detected is None:
+                refresh_hotbar_hover()
+                detected = _detect_hotbar_unit_in_slot(
+                    slot_region,
+                    Settings.Units_Placeable,
+                    confidence=0.8,
+                )
             if detected is None:
                 break
 
@@ -1756,7 +1482,7 @@ def on_failure():
     time_out = 60/0.4
     click(Settings.REPLAY_BUTTON_POS[0],Settings.REPLAY_BUTTON_POS[1],delay =0.1)
     time.sleep(1)
-    while bt.does_exist("Winter/DetectLoss.png",confidence=0.7,grayscale=True):
+    while bt.does_exist("Failed.png",confidence=0.7,grayscale=False):
         if time_out<0:
             on_disconnect()
             print("Should disconnect")
@@ -1890,9 +1616,13 @@ def detect_loss():
     print("Loss detection: Active")
 
 
-    while g_toggle:
+    while True:
+        if not g_toggle:
+            time.sleep(0.25)
+            continue
+
         try:
-            loss_found = bt.does_exist("Winter/DetectLoss.png", confidence=0.7, grayscale=True)
+            loss_found = bt.does_exist("Failed.png", confidence=0.7, grayscale=False)
         except Exception as e:
             print(f"[detect_loss] does_exist error: {e}")
             loss_found = False
@@ -1908,7 +1638,7 @@ def detect_loss():
 
             while g_toggle:
                 try:
-                    still_loss = bt.does_exist("Winter/DetectLoss.png", confidence=0.7, grayscale=True)
+                    still_loss = bt.does_exist("Failed.png", confidence=0.7, grayscale=False)
                 except Exception as e:
                     print(f"[detect_loss] does_exist error (wait loop): {e}")
                     still_loss = False
@@ -1935,73 +1665,6 @@ def detect_loss():
         time.sleep(1)
 
 Thread(target=detect_loss, daemon=True).start()
-
-def _roblox_window_screenshot_for_webhook():
-    """
-    Capture only the Roblox window for webhook screenshots.
-    Returns PNG BytesIO or None (does not fall back to full screen).
-    """
-    try:
-        roblox_window = wt.get_window("Roblox")
-        if roblox_window is None:
-            print("[Webhook] Roblox window not found, sending webhook without screenshot")
-            return None
-        return wt.screen_shot_memory(roblox_window)
-    except Exception as e:
-        print(f"[Webhook] Roblox window screenshot failed: {e}")
-        return None
-
-def ensure_roblox_window_positioned():
-    target_left, target_top = 200, 100
-    target_width, target_height = 1100, 800
-
-    try:
-        window = wt.get_window("Roblox")
-        if window is None:
-            print("[Window] Roblox window not found; could not verify/position window.")
-            return False
-
-        left = int(getattr(window, "left", -1))
-        top = int(getattr(window, "top", -1))
-        width = int(getattr(window, "width", -1))
-        height = int(getattr(window, "height", -1))
-
-        already_positioned = (
-            left == target_left and
-            top == target_top and
-            width == target_width and
-            height == target_height
-        )
-        if already_positioned:
-            return True
-
-        wt.move_window(window, target_left, target_top)
-        wt.resize_window(window, target_width, target_height)
-        time.sleep(0.2)
-
-        check_window = wt.get_window("Roblox") or window
-        new_left = int(getattr(check_window, "left", -1))
-        new_top = int(getattr(check_window, "top", -1))
-        new_width = int(getattr(check_window, "width", -1))
-        new_height = int(getattr(check_window, "height", -1))
-
-        if (
-            new_left == target_left and
-            new_top == target_top and
-            new_width == target_width and
-            new_height == target_height
-        ):
-            print("[Window] Roblox window was not positioned correctly; corrected window position.")
-            return True
-
-        print(
-            f"[Window] Roblox window was not positioned correctly; correction failed "
-            f"(x={new_left}, y={new_top}, w={new_width}, h={new_height})."
-        )
-        return False
-    except Exception as e:
-        print(f"[Window] Roblox window was not positioned correctly; correction failed: {e}")
-        return False
 
 def main():
     ensure_roblox_window_positioned()
@@ -2348,7 +2011,7 @@ def main():
                     click(pos[0], pos[1], delay=0.67)
                     time.sleep(0.5)
 
-                    while not pixel_matches_seen(604, 382, (255, 255, 255), tol=20, sample_half=2) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
+                    while not pixel_matches_at(604, 382, (255, 255, 255), tol=20, sample_half=1) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
                         if not g_toggle:
                             break
                         click(pos[0], pos[1], delay=0.67)
@@ -2531,16 +2194,17 @@ def main():
     
             # World destroyer
             if Settings.USE_WD:
-                secure_select(Settings.Unit_Positions.get("Caloric_Unit"))
-                time.sleep(1)
-                while not bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
-                    tap('t')
-                    time.sleep(1)
-                    if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
-                        print("Unit Maxed.")
-                        break
-                time.sleep(0.5)
-                click(607, 381, delay =0.1)
+                print("Already Maxed.")
+                # secure_select(Settings.Unit_Positions.get("Caloric_Unit"))
+                # time.sleep(1)
+                # while not bt.does_exist("Winter/StopWD.png",confidence=0.8,grayscale=False,region=(365,399,309,210)):
+                #     tap('t')
+                #     time.sleep(1)
+                #     if bt.does_exist("Unit_Maxed.png",confidence=0.8,grayscale=False):
+                #         print("Unit Maxed.")
+                #         break
+                # time.sleep(0.5)
+                # click(607, 381, delay =0.1)
             elif Settings.USE_DIO:
                 secure_select(Settings.Unit_Positions.get("Caloric_Unit"))
                 time.sleep(1)
@@ -2914,19 +2578,6 @@ def main():
                 print("[Restart] Restart not confirmed, retrying...")
                 time.sleep(2)
 
-def _osascript(script: str) -> bool:
-    try:
-        subprocess.run(["osascript", "-e", script], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except Exception:
-        return False
-    
-
-def focus_roblox():
-    _osascript('tell application "Roblox" to activate')
-    time.sleep(0.2)
-    
 if "--restart" in sys.argv:
     on_disconnect()
 

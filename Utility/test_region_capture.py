@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 
 DEBUG_DIR = os.path.join("Resources", "debug_shots")
 REGION_MODE = "screen"  # "screen" or "roblox"
-INPUT_REGION = (368,257,120,49) #(470, 771, 570, 118)  # (left, top, width, height)
+INPUT_REGION = (767, 189, 127, 83) #(470, 771, 570, 118)  # (left, top, width, height)
 
 
 def _xywh_to_bbox(region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:

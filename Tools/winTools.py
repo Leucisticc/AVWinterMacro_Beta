@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pyautogui
 import numpy as np
 import cv2
+from PIL import Image
 
 from Tools import appSettings
 
@@ -17,6 +18,17 @@ try:
     import mss
 except Exception:
     mss = None
+
+
+def _mss_screenshot(region=None):
+    """Capture using mss (faster). region=(x,y,w,h) or None for full screen. Returns PIL RGB Image."""
+    if mss is not None:
+        with mss.mss() as sct:
+            monitor = {"left": int(region[0]), "top": int(region[1]), "width": max(1, int(region[2])), "height": max(1, int(region[3]))} if region else sct.monitors[0]
+            shot = sct.grab(monitor)
+            return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    return pyautogui.screenshot(region=region)
+
 
 # Optional window listing (flaky on macOS, so keep graceful fallbacks)
 try:
@@ -296,11 +308,11 @@ def screenshot_window(window=None, name: str | None = None, retImg: bool = False
             height = getattr(window, "height", None)
 
             if None not in (left, top, width, height):
-                img = pyautogui.screenshot(region=(left, top, width, height))
+                img = _mss_screenshot(region=(left, top, width, height))
             else:
-                img = pyautogui.screenshot()
+                img = _mss_screenshot()
         else:
-            img = pyautogui.screenshot()
+            img = _mss_screenshot()
 
         img.save(fullPath)
 
@@ -316,7 +328,7 @@ def screenshot_window(window=None, name: str | None = None, retImg: bool = False
 def screen_shot_memory(window=None):
     """
     Returns PNG bytes (BytesIO) of a window region (if bounds available),
-    else full screen. Uses pyautogui.screenshot() for mac consistency.
+    else full screen.
     """
     try:
         if window:
@@ -326,11 +338,11 @@ def screen_shot_memory(window=None):
             height = getattr(window, "height", None)
 
             if None not in (left, top, width, height):
-                img = pyautogui.screenshot(region=(left, top, width, height))
+                img = _mss_screenshot(region=(left, top, width, height))
             else:
-                img = pyautogui.screenshot()
+                img = _mss_screenshot()
         else:
-            img = pyautogui.screenshot()
+            img = _mss_screenshot()
 
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
@@ -349,20 +361,8 @@ def screenshot_region(region: tuple[int, int, int, int]):
     """
     try:
         x, y, w, h = region
-        if appSettings.get_bool("USE_MSS", "USE_FAST_REGION_CAPTURE", default=False) and mss is not None:
-            monitor = {
-                "left": int(x),
-                "top": int(y),
-                "width": max(1, int(w)),
-                "height": max(1, int(h)),
-            }
-            with mss.mss() as sct:
-                shot = sct.grab(monitor)
-            return cv2.cvtColor(np.array(shot), cv2.COLOR_BGRA2BGR)
-
-        pil_img = pyautogui.screenshot(region=(x, y, w, h))  # PIL RGB
-        img_np = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-        return img_np
+        pil_img = _mss_screenshot(region=(x, y, w, h))
+        return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     except Exception as e:
         print(f"Region {region} screenshot error: {e}")
         return None

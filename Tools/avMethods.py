@@ -129,7 +129,7 @@ def get_wave(offset: tuple[int, int] | None = None) -> int:
         return -1
 
 
-def restart_match():
+def restart_match(fast=False):
     """Clicks through the UI to restart a match."""
     bt.click(227, 868)
     time.sleep(0.8)
@@ -140,7 +140,10 @@ def restart_match():
     bt.click(726, 560)
     time.sleep(0.7)
     bt.click(1212, 254)
-    time.sleep(0.7)
+    if fast:
+        time.sleep(0.1)
+    else:
+        time.sleep(0.7)
 
 
 if __name__ == "__main__":

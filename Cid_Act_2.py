@@ -18,9 +18,10 @@ from Tools.gameHelpers import (
 # ================================================== #
 
 TEAM = 1 # Select the team you want
-SKELE_WAIT_SECONDS = 1 # If skele king is nuking too early, make this higher
+SKELE_WAIT_SECONDS = 3 # If skele king is nuking too early, make this higher
 CONSISTENT_NUKE = False # Set to true to guarrantee the nuke is used on the boss (more consistent but might be 1-2 seconds slower)
-RUNS_BEFORE_REJOIN = 250 # Cid match gets laggy around 400 so it rejoins after this amount of runs.
+RUNS_BEFORE_REJOIN = 300 # Cid match gets laggy around 400 so it rejoins after this amount of runs.
+WEBHOOK_EVERY_N_RUNS = 50 # Send a webhook every N runs (1 = every run)
 
 
 GEMS_PER_WIN = 150
@@ -48,7 +49,7 @@ if TEAM == 1:
     
     
     UNITS = {
-        "setup": {"name": "Ichigo", "hotbar": (520, 826), "pos": (805, 399)},
+        "setup": {"name": "Ichigo", "hotbar": (520, 826), "pos": (670, 550)},
         "hb1": {"name": "Ichigo", "hotbar": (520, 826), "pos": (805, 399)},
         "hb2": {"name": "Sakura", "hotbar": (615, 826), "pos": (829, 338)},
         "hb3": {"name": "Skele", "hotbar": (710, 826), "pos": (738, 399)},
@@ -71,6 +72,7 @@ print(f"Team {TEAM} selected: {UNITS['hb1']['name']}, {UNITS['hb2']['name']}, {U
 
 failed_runs = 0
 failed_matches = 0
+first_match = True
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
@@ -171,17 +173,22 @@ def set_up_raid():
     time.sleep(10)
     wait_start()
     print("Setting up Raid.")
+    #Close Chat (VC)
+    print("Closing Chat (VC)")
     click(398,160,delay=0.5)
     time.sleep(1)
     click(398,160,delay=0.5)
     time.sleep(1)
+    print("Closing objectives")
     # click(438,532,delay=0.5)
     click(482,462,delay=0.5) #Close objectives
     time.sleep(1)
-    click(VOTE_START_POS)
+    while bt.does_exist("VoteStart.png",confidence=0.7,grayscale=False,region=(767, 189, 127, 83)):
+        click(VOTE_START_POS)
+    print("Placing setup unit")
     time.sleep(0.5)
     place_unit(UNITS["setup"])
-    time.sleep(1)
+    time.sleep(1.5)
     click(399,401,delay=0.5)
     time.sleep(1)
     click(646,781,delay=0.5)
@@ -235,11 +242,12 @@ def go_to_raid():
     time.sleep(1)
     click(286,735,delay=0.5)
     
-def rejoin_raid(total_runs):
+def rejoin_raid():
+    global first_match
     go_to_lobby()
     go_to_raid()
     set_up_raid()
-    return 0
+    first_match = True
 
 def enable_auto_start():
     print("Enabling Auto Start")
@@ -256,6 +264,8 @@ def enable_auto_start():
     click(1223,269,delay=0.2)
     time.sleep(1)
     click(750,286,delay=0.2)
+    click(750,286,delay=0.2)
+    time.sleep(0.5)
 
 def wait_end(total_runs, delay: float = 0.2, timeout: float = 20.0):
     global failed_runs
@@ -286,13 +296,13 @@ def wait_end(total_runs, delay: float = 0.2, timeout: float = 20.0):
                     if failed_matches>=2:
                         kill()
                     else:
-                        total_runs = rejoin_raid(total_runs)
+                        rejoin_raid()
                 return "fail", total_runs
         except Exception as e:
             print(f"replay detect error: {e}")
         time.sleep(delay)
     print("❌ Replay button NOT detected (timeout)")
-    avM.restart_match()
+    avM.restart_match(fast=True)
     return "timeout", total_runs
 
 def send_run_webhook(session_start: datetime, wins: int, losses: int, alert_text: str | None = None):
@@ -319,15 +329,19 @@ def cid_farm():
 
     while not avM.get_wave() == 0:
         avM.restart_match()
+    global first_match
     session_start = datetime.now()
     total_runs = 0
+    runs_since_rejoin = 0
     wins = 0
     losses = 0
+    first_match = True
     while True:
         click(REPLAY_POS)
-        if total_runs>= RUNS_BEFORE_REJOIN:
-            total_runs = rejoin_raid(total_runs)
-        if total_runs == 0:
+        if runs_since_rejoin >= RUNS_BEFORE_REJOIN:
+            rejoin_raid()
+            runs_since_rejoin = 0
+        if first_match:
             wait_start()
             quick_rts()
             time.sleep(0.5)
@@ -337,6 +351,7 @@ def cid_farm():
                 click(580,650, right_click=True,delay=0.5)
                 time.sleep(2)
             click(VOTE_START_POS)
+            first_match = False
         time.sleep(0.2)
         
         
@@ -352,7 +367,10 @@ def cid_farm():
             time.sleep(3)
             spam_chord_for_duration(duration=2)
             click(SKELE_KING_CLOSE)
-            time.sleep(1.7)
+            time.sleep(1.2)
+            while pixel_matches_at(765,791,(2,0,0),tol=20,sample_half=1):
+                time.sleep(0.1)
+            # time.sleep(1.7)
             place_unit_hotkey(UNITS["hb4"])
             time.sleep(0.1)
             for i in range(2):
@@ -369,7 +387,7 @@ def cid_farm():
                 click(ABILITY_POS, delay=0.2)
                 time.sleep(0.1)
                 click(UNITS["hb1"]["pos"])
-                time.sleep(0.3)
+                time.sleep(0.2)
                 temp += 1
             while pixel_matches_at(830,140,(103,219,81),tol=20,sample_half=1):
                 # print("Stock 2")
@@ -378,7 +396,7 @@ def cid_farm():
                 click(ABILITY_POS, delay=0.2)
                 time.sleep(0.1)
                 click(UNITS["hb3"]["pos"])
-                time.sleep(0.3)
+                time.sleep(0.2)
                 temp+=1
             # tap('f')
             # time.sleep(0.7)
@@ -387,19 +405,22 @@ def cid_farm():
             # tap('f')
             time.sleep(0.1)
             click(UNITS["hb2"]["pos"])
-            time.sleep(0.2)
+            time.sleep(0.1)
             tap('x')
-            time.sleep(0.2)
-            tap('r')
-            time.sleep(0.3)
+            time.sleep(0.1)
+            for i in range(2):
+                tap('r')
+                time.sleep(0.1)
             click(UNITS["hb1"]["pos"])
-            time.sleep(0.2)
-            tap('r')
+            time.sleep(0.1)
+            for i in range(2):
+                tap('r')
+                time.sleep(0.1)
             temp_sec = 0
             while bt.does_exist("Cid_Health.png", confidence=0.7, grayscale=False, region=(555,235,125,27)):
                 time.sleep(0.1)
                 temp_sec += 0.1
-            if temp_sec<2:
+            if temp_sec<1.5:
                 # print(2-temp_sec)
                 time.sleep(2-temp_sec)
             for i in range(2):
@@ -468,23 +489,18 @@ def cid_farm():
             #     time.sleep(0.2)
         end_state, total_runs = wait_end(total_runs)
         if end_state == "win":
-            if total_runs==0:
+            if runs_since_rejoin == 0:
                 enable_auto_start()
             wins += 1
             total_runs += 1
-            if total_runs == 1:
-                session_start = datetime.now()
-                wins = 0
-                losses = 0
-            send_run_webhook(session_start=session_start, wins=wins, losses=losses)
+            runs_since_rejoin += 1
+            if (wins + losses) % WEBHOOK_EVERY_N_RUNS == 0:
+                send_run_webhook(session_start=session_start, wins=wins, losses=losses)
             print(f"Runs: {wins+losses} | Wins: {wins} | Losses: {losses} | Runtime: {str(datetime.now() - session_start).split('.')[0]} | Rewards: {wins * GEMS_PER_WIN:,}")
         elif end_state == "fail":
             losses += 1
             total_runs += 1
-            if total_runs == 1:
-                session_start = datetime.now()
-                wins = 0
-                losses = 0
+            runs_since_rejoin += 1
             send_run_webhook(
                 session_start=session_start,
                 wins=wins,

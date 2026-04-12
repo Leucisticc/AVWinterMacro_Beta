@@ -1,13 +1,17 @@
 import argparse
+import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
-import pyautogui
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from Tools.screenHelpers import _get_backing_scale
+from Tools.botTools import _grab_region
+
 HOTBAR_REGION = (470, 771, 570, 118)
 HOTBAR_SLOT_REGIONS = (
     (469, 782, 94, 89),
@@ -19,32 +23,6 @@ HOTBAR_SLOT_REGIONS = (
 )
 DEFAULT_CONFIDENCE = 0.8
 MIRKO_CONFIDENCE = 0.8
-
-pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0
-
-
-def safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
-    last_error = None
-    for _ in range(max(1, retries)):
-        try:
-            return pyautogui.screenshot()
-        except Exception as e:
-            last_error = e
-            time.sleep(retry_delay)
-    raise RuntimeError(f"screenshot failed after retries: {last_error}")
-
-
-def screen_region_to_screenshot_region(region, screenshot):
-    x, y, w, h = region
-    sw, sh = pyautogui.size()
-    iw, ih = screenshot.size
-    if sw <= 0 or sh <= 0 or iw <= 0 or ih <= 0:
-        return region
-
-    sx = iw / sw
-    sy = ih / sh
-    return (int(x * sx), int(y * sy), max(1, int(w * sx)), max(1, int(h * sy)))
 
 
 def resolve_template_paths():
@@ -70,24 +48,32 @@ def load_template(path: Path):
     template = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if template is None:
         raise RuntimeError(f"failed to read template: {path}")
+    scale = _get_backing_scale()
+    if scale != 1.0:
+        th, tw = template.shape[:2]
+        template = cv2.resize(
+            template,
+            (max(1, int(tw / scale)), max(1, int(th / scale))),
+            interpolation=cv2.INTER_AREA,
+        )
     return template
 
 
-def match_template_in_hotbar(template, screenshot_bgr, search_region, confidence: float):
-    rx, ry, rw, rh = search_region
-    crop = screenshot_bgr[ry:ry + rh, rx:rx + rw]
-    if crop.size == 0:
+def match_template_in_region(template, region: tuple, confidence: float):
+    grab = _grab_region(region)
+    if grab is None or grab.size == 0:
         return None
 
     th, tw = template.shape[:2]
-    if crop.shape[0] < th or crop.shape[1] < tw:
+    if grab.shape[0] < th or grab.shape[1] < tw:
         return None
 
-    result = cv2.matchTemplate(crop, template, cv2.TM_CCOEFF_NORMED)
+    result = cv2.matchTemplate(grab, template, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(result)
     if max_val < confidence:
         return None
 
+    rx, ry, _, _ = region
     return {
         "score": float(max_val),
         "box": (rx + max_loc[0], ry + max_loc[1], tw, th),
@@ -102,15 +88,11 @@ def template_confidence(path: Path) -> float:
 
 
 def detect_hotbar_images(region):
-    screenshot = safe_screenshot()
-    screenshot_bgr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-    search_region = screen_region_to_screenshot_region(region, screenshot)
-
     detections = []
     for template_path in resolve_template_paths():
         template = load_template(template_path)
         confidence = template_confidence(template_path)
-        match = match_template_in_hotbar(template, screenshot_bgr, search_region, confidence)
+        match = match_template_in_region(template, region, confidence)
         if match is None:
             continue
         detections.append(
@@ -128,19 +110,16 @@ def detect_hotbar_images(region):
 
 
 def detect_hotbar_images_per_slot(slot_regions):
-    screenshot = safe_screenshot()
-    screenshot_bgr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
     templates = resolve_template_paths()
 
     slot_detections = []
     for index, slot_region in enumerate(slot_regions, start=1):
-        search_region = screen_region_to_screenshot_region(slot_region, screenshot)
         best_match = None
 
         for template_path in templates:
             template = load_template(template_path)
             confidence = template_confidence(template_path)
-            match = match_template_in_hotbar(template, screenshot_bgr, search_region, confidence)
+            match = match_template_in_region(template, slot_region, confidence)
             if match is None:
                 continue
 
@@ -159,6 +138,26 @@ def detect_hotbar_images_per_slot(slot_regions):
         slot_detections.append(best_match)
 
     return slot_detections
+
+
+def detect_unit_in_slot(slot_region: tuple, units: list[str], confidence: float = 0.8):
+    """
+    Check a list of unit names against a single slot region.
+    Returns the best match dict (unit, score, box) or None.
+    """
+    best_match = None
+    for unit in units:
+        template_path = PROJECT_ROOT / "Resources" / "Winter" / f"{unit}_hb.png"
+        if not template_path.is_file():
+            continue
+        template = load_template(template_path)
+        match = match_template_in_region(template, slot_region, confidence)
+        if match is None:
+            continue
+        if best_match is None or match["score"] > best_match["score"]:
+            best_match = {"unit": unit, "score": match["score"], "box": match["box"]}
+
+    return best_match
 
 
 def print_detections(detections, region):

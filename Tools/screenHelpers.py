@@ -11,6 +11,21 @@ except Exception:
     _mss = None
 
 _retina_scale: tuple[float, float] | None = None
+_backing_scale: float | None = None
+
+
+def _get_backing_scale() -> float:
+    """Return the macOS Retina backing scale factor (e.g. 2.0 on Retina, 1.0 otherwise).
+    cmd+shift+4 screenshots are at this scale; mss captures at logical (1×) resolution."""
+    global _backing_scale
+    if _backing_scale is not None:
+        return _backing_scale
+    try:
+        from AppKit import NSScreen
+        _backing_scale = float(NSScreen.mainScreen().backingScaleFactor())
+    except Exception:
+        _backing_scale = 1.0
+    return _backing_scale
 
 
 def _safe_screenshot(retries: int = 3, retry_delay: float = 0.12):
