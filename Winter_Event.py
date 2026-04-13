@@ -48,7 +48,7 @@ PLACEMENT_TIMEOUT_SECONDS = 60
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "39534321779207670527898821021810" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
 
 WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
 USE_FAST_REGION_CAPTURE = True # Use mss for wt.screenshot_region monkey-patch
@@ -1246,7 +1246,7 @@ def place_unit(unit: str, pos: tuple[int, int], upgrade: bool | None = None, clo
     place_attempts = 15
     hotbar_wait_checks = 20
     hotbar_poll_delay = 0.04
-    white_ui = (235, 235, 235)
+    white_ui = (255, 255, 255)
     hb_region = region if region is not None else HOTBAR_REGION
 
     # 1) Find and arm hotbar icon (bounded to hotbar region for speed)
@@ -1298,7 +1298,7 @@ def place_unit(unit: str, pos: tuple[int, int], upgrade: bool | None = None, clo
         time.sleep(0.30)
 
         # If the game shows “UnitExists” we’re done (unit placed)
-        if bt.does_exist("Winter/UnitExists.png", confidence=0.8, grayscale=True):
+        if bt.does_exist("Winter/UnitExists.png", confidence=0.8, grayscale=True, region=(212,576,315,197)):
             break
 
         # If we *now* see the UI pixel is white, also done
@@ -1442,9 +1442,7 @@ def ainz_setup(unit:str):
             while not bt.does_exist("Winter/CaloricThing.png",confidence=0.8,grayscale=False):
                 time.sleep(0.5)
             print(f"Placing unit {unit}")
-        while not pixel_matches_at(604, 383,(255,255,255), tol=25, sample_half=0):
-            click(i[0],i[1],delay =0.1)
-    
+        click(i[0],i[1],delay =0.1)
         time.sleep(1)
         
         if v == 14:
@@ -1998,7 +1996,7 @@ def main():
                     time.sleep(0.5)
 
                     if Settings.USE_WD == True:
-                        ainz_setup(unit="world")
+                        ainz_setup(unit="world des")
                     elif Settings.USE_DIO == True:
                         ainz_setup(unit="god")
                     elif USE_BUU:
@@ -2013,7 +2011,7 @@ def main():
                     click(pos[0], pos[1], delay=0.67)
                     time.sleep(0.5)
 
-                    while not pixel_matches_at(604, 382, (255, 255, 255), tol=20, sample_half=1) and bt.does_exist("Winter/UnitExists.png",confidence=0.8,grayscale=False,region=(212,576,315,197)):
+                    while not pixel_matches_at(604, 382, (255, 255, 255), tol=20, sample_half=1):
                         if not g_toggle:
                             break
                         click(pos[0], pos[1], delay=0.67)
@@ -2029,8 +2027,10 @@ def main():
 
                     if Settings.MAX_UPG_AINZ_PLACEMENT:
                         tap('z')
+                        time.sleep(0.5)
 
                     if Settings.MONARCH_AINZ_PLACEMENT:
+                        click(607, 381, delay =0.1)
                         directions('5')
                         buy_monarch()
                         quick_rts()
@@ -2103,12 +2103,14 @@ def main():
                             directions('5')
                             buy_monarch()
                             quick_rts()
+                            time.sleep(1)
                             click(erza_buffer[1][0],erza_buffer[1][1],delay =0.1)
                             time.sleep(0.5)
 
                             directions('5')
                             buy_monarch()
                             quick_rts()
+                            time.sleep(1)
                             click(erza_buffer[2][0],erza_buffer[2][1],delay =0.1)
                             time.sleep(0.5)
 
