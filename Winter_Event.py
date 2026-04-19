@@ -44,11 +44,14 @@ print(f"Version: {VERSION_N}")
 
 #Caloric position 1: 821,475
 CHECK_LOOTBOX = False # Leave false for faster runs
+
+VC_CHAT = True # Enable if you have VC in roblox (check in the disocrd server if you're confused)
+
 PLACEMENT_TIMEOUT_SECONDS = 60
 
 ROBLOX_PLACE_ID = 16146832113
 
-PRIVATE_SERVER_CODE = "" # Not in settings so u dont accidently share ur ps lol
+PRIVATE_SERVER_CODE = "39534321779207670527898821021810" # Not in settings so u dont accidently share ur ps lol
 
 WEBHOOK_CHECKER = False #Set to True if you want to send a webhook every time you run it
 USE_FAST_REGION_CAPTURE = True # Use mss for wt.screenshot_region monkey-patch
@@ -419,15 +422,25 @@ def pixel_color_seen(x: int, y: int, sample_half: int = 1, screenshot=None):
         return (0, 0, 0)
     return _seen_pixel_from_screenshot(img, x, y, sample_half=sample_half)
 
+def tap_pg(key, hold=0.08, post_delay=0.05):
+    pyautogui.keyDown(key)
+    time.sleep(hold)
+    pyautogui.keyUp(key)
+    time.sleep(post_delay)
+    time.sleep(0.25)
+    
 def setup_cam():
+    print("Setting up camera")
     focus_roblox()
     time.sleep(1)
-    press('i')
-    time.sleep(0.5)
-    release('i')
+    wait_start()
+    click(835, 226, delay =0.1) # Start Match
+    # press('i')
+    # time.sleep(0.5)
+    # release('i')
     time.sleep(0.5)
     press('o')
-    time.sleep(1)
+    time.sleep(1.5)
     release('o')
     time.sleep(0.5)
     quick_rts()
@@ -448,12 +461,28 @@ def setup_cam():
     click(566,587,delay=0.5,right_click=True)
     time.sleep(1.5)
     tap('v')
-    time.sleep(0.5)
+    time.sleep(0.3)
+    pyautogui.moveTo(367,298)
+    time.sleep(0.3)
+    if VC_CHAT:
+        print("Closing Chat (VC)")
+        while pixel_matches_at(367,298,(37,42,55), tol=30,sample_half=2):
+            click(398,160,delay=0.5)
+            time.sleep(0.5)
+            pyautogui.moveTo(367,298)
+            time.sleep(0.5)
+    else:
+        print("Closing Chat")
+        while pixel_matches_at(367,298,(37,42,55), tol=30,sample_half=2):
+            click(350,160,delay=0.5)
+            time.sleep(0.5)
+            pyautogui.moveTo(367,298)
+            time.sleep(0.5)
     tap('e')
+    time.sleep(0.5)
+    place_unit('Bunny',(711,634),close=False)
     time.sleep(1)
-    place_unit('Bunny',(700,700),close=False)
-    time.sleep(1)
-    clicks_look_down = [(398, 398), (649, 772), (745, 858)]
+    clicks_look_down = [(399, 403), (649, 772), (745, 858)]
     for pt in clicks_look_down:
         click(pt[0], pt[1], delay=1)
         time.sleep(1 if pt == (649, 772) else 0.3)
@@ -461,6 +490,16 @@ def setup_cam():
     click(607, 383, delay =0.1)
     time.sleep(0.5)
     press('o'); time.sleep(1); release('o')
+    time.sleep(0.2)
+    tap_pg('left', hold=0.74740067420)
+    time.sleep(0.5)
+    print("Closing objectives")
+    # click(438,532,delay=0.5)
+    click(482,462,delay=0.5) #Close objectives
+    time.sleep(1)
+    # tap_pg('tab')
+    click(1062,200,delay=0.2)
+    time.sleep(0.3)
     quick_rts()
 
 # -------------------------
@@ -1670,6 +1709,7 @@ Thread(target=detect_loss, daemon=True).start()
 
 def main():
     ensure_roblox_window_positioned()
+    setup_cam()
     rabbit_pos = Settings.Unit_Positions.get("mirko")
     speed_pos =  Settings.Unit_Positions.get("speedwagon")
     gamer_pos = Settings.Unit_Positions.get("Hero") or []

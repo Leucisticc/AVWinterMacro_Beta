@@ -5,7 +5,7 @@ from datetime import datetime
 from pynput import keyboard as pynput_keyboard
 from Tools import botTools as bt
 from Tools import avMethods as avM
-from Tools.screenHelpers import _safe_screenshot, pixel_matches_at
+from Tools.screenHelpers import _safe_screenshot, pixel_color_at, pixel_matches_at
 from Tools.imageHelpers import find_image_center
 from Tools.gameHelpers import (
     kill, click, tap, spam_chord_for_duration,
@@ -22,7 +22,7 @@ SKELE_WAIT_SECONDS = 3 # If skele king is nuking too early, make this higher
 CONSISTENT_NUKE = False # Set to true to guarrantee the nuke is used on the boss (more consistent but might be 1-2 seconds slower)
 RUNS_BEFORE_REJOIN = 300 # Cid match gets laggy around 400 so it rejoins after this amount of runs.
 WEBHOOK_EVERY_N_RUNS = 50 # Send a webhook every N runs (1 = every run)
-
+VC_CHAT = True # Enable if you have VC in roblox (check in the disocrd server if you're confused)
 
 GEMS_PER_WIN = 150
 VOTE_START_POS = (840,228)
@@ -49,7 +49,7 @@ if TEAM == 1:
     
     
     UNITS = {
-        "setup": {"name": "Ichigo", "hotbar": (520, 826), "pos": (670, 550)},
+        "setup": {"name": "Ichigo", "hotbar": (520, 826), "pos": (670, 520)},
         "hb1": {"name": "Ichigo", "hotbar": (520, 826), "pos": (805, 399)},
         "hb2": {"name": "Sakura", "hotbar": (615, 826), "pos": (829, 338)},
         "hb3": {"name": "Skele", "hotbar": (710, 826), "pos": (738, 399)},
@@ -170,14 +170,23 @@ def slow_rts(): # Returns to spawn
     # print("❌ Start screen NOT detected (timeout)")
 
 def set_up_raid():
-    time.sleep(10)
+    time.sleep(1)
     wait_start()
     print("Setting up Raid.")
-    #Close Chat (VC)
-    print("Closing Chat (VC)")
-    click(398,160,delay=0.5)
-    time.sleep(1)
-    click(398,160,delay=0.5)
+    if VC_CHAT:
+        print("Closing Chat (VC)")
+        while pixel_matches_at(367,298,(37,42,55), tol=30,sample_half=2):
+            click(398,160,delay=0.5)
+            time.sleep(0.5)
+            pyautogui.moveTo(367,298)
+            time.sleep(0.5)
+    else:
+        print("Closing Chat")
+        while pixel_matches_at(367,298,(37,42,55), tol=30,sample_half=2):
+            click(350,160,delay=0.5)
+            time.sleep(0.5)
+            pyautogui.moveTo(367,298)
+            time.sleep(0.5)
     time.sleep(1)
     print("Closing objectives")
     # click(438,532,delay=0.5)
@@ -197,6 +206,11 @@ def set_up_raid():
     time.sleep(1)
     tap('o',hold=1.5)
     time.sleep(0.5)
+    tap_pg('left', hold=0.74)
+    time.sleep(0.5)
+    # tap_pg('tab')
+    click(1062,200,delay=0.2)
+    time.sleep(0.3)
     quick_rts()
     time.sleep(0.5)
     avM.restart_match()
@@ -326,7 +340,7 @@ def cid_farm():
     focus_roblox()
     time.sleep(0.2)
     ensure_roblox_window_positioned()
-
+    set_up_raid()
     while not avM.get_wave() == 0:
         avM.restart_match()
     global first_match
@@ -368,14 +382,29 @@ def cid_farm():
             spam_chord_for_duration(duration=2)
             click(SKELE_KING_CLOSE)
             time.sleep(1.2)
-            while pixel_matches_at(765,791,(2,0,0),tol=20,sample_half=1):
+            while True:
+                alucard_seen = pixel_color_at(797, 818, sample_half=1)
+                alucard_ready = (
+                    alucard_seen is not None
+                    and abs(alucard_seen[0] - 169) <= 30
+                    and abs(alucard_seen[1] - 140) <= 30
+                    and abs(alucard_seen[2] - 121) <= 30
+                )
+                # print(
+                #     f"[Alucard Wait] Seen at (797, 818): {alucard_seen} | "
+                #     f"matches ready color: {alucard_ready}"
+                # )
+                if alucard_ready:
+                    break
                 time.sleep(0.1)
+                # print("waiting alucard")
             # time.sleep(1.7)
             place_unit_hotkey(UNITS["hb4"])
             time.sleep(0.1)
             for i in range(2):
                 tap('r')
                 time.sleep(0.1)
+            time.sleep(0.1)
             place_unit_hotkey(UNITS["hb2"])
             time.sleep(0.1)
             temp = 0
