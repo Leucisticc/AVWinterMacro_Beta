@@ -43,6 +43,8 @@ except Exception as e:
 print(f"Version: {VERSION_N}")
 
 #Caloric position 1: 821,475
+TURN_CAM = 0.745 #0.74740067420
+
 CHECK_LOOTBOX = False # Leave false for faster runs
 
 VC_CHAT = True # Enable if you have VC in roblox (check in the disocrd server if you're confused)
@@ -491,7 +493,7 @@ def setup_cam():
     time.sleep(0.5)
     press('o'); time.sleep(1); release('o')
     time.sleep(0.2)
-    tap_pg('left', hold=0.74740067420)
+    tap_pg('left', hold=TURN_CAM)
     time.sleep(0.5)
     print("Closing objectives")
     # click(438,532,delay=0.5)
@@ -730,6 +732,7 @@ def directions(area: str, unit: str | None=None): # This is for all the pathing
         
     #Contains rabbit, nami, and hero
     if Settings.USE_NIMBUS:
+        time.sleep(1)
         if area == '1':  
             #DIR_PATHING
             # Pathing
@@ -1911,31 +1914,6 @@ def main():
                 click(607, 381, delay =0.1)
                 
                 
-            # # Start auto upgrading first rabbit
-            # secure_select(rabbit_pos[0])
-            # time.sleep(0.5)
-            # tap('z')
-            # click(607, 381, delay =0.1)
-            
-            
-            # # Start auto upgrading rabbit 1 & 2
-            # secure_select(rabbit_pos[1])
-            # time.sleep(0.5)
-            # tap('z')
-            # click(607, 381, delay =0.1)
-            # time.sleep(1)
-            # secure_select(rabbit_pos[2])
-            # time.sleep(0.5)
-            # tap('z')
-            # click(607, 381, delay =0.1)
-            # time.sleep(1)
-            
-            # # Get first monarch
-            # directions('5')
-            # buy_monarch()
-            # quick_rts()
-            # time.sleep(1)
-            # secure_select(rabbit_pos[0])
             
             # Wave 19 lane unlocks for 20% boost
             time.sleep(2)
@@ -2386,6 +2364,9 @@ def main():
             
             esc_ability = False
             
+            click(rabbit_pos[i][0], rabbit_pos[i][1], delay =0.1)
+            time.sleep(0.5)
+            click(607, 381, delay =0.2)
             print("Finished Upgrading! Waiting for end wave.")
             if Settings.WAVE_RESTART_150:
                 wave_150 = False
@@ -2540,7 +2521,10 @@ def main():
 
                         tap('v')
                         quick_rts()
-                        time.sleep(2)
+                        print("Repositioning Camera")
+                        time.sleep(1.5)
+                        tap_pg('left', hold=TURN_CAM)
+                        time.sleep(0.5)
 
                         done_path = True  # ✅ stop spam thread
 
