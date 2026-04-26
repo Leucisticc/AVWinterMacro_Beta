@@ -2008,11 +2008,6 @@ def main():
                     ainz_pos = Settings.Unit_Positions['Ainz']
                     pos = Settings.Unit_Positions.get("Caloric_Unit")
 
-                    secure_select((ainz_pos[0]))
-                    time.sleep(0.5)
-                    tap('z')
-                    time.sleep(0.5)
-
                     if Settings.USE_WD == True:
                         ainz_setup(unit="world des")
                     elif Settings.USE_DIO == True:
@@ -2022,6 +2017,11 @@ def main():
                     else:
                         ainz_setup(unit=Settings.USE_AINZ_UNIT)
 
+                    secure_select((ainz_pos[0]))
+                    time.sleep(0.5)
+                    tap('z')
+                    time.sleep(0.5)
+                    
                     global AINZ_SPELLS
                     if not AINZ_SPELLS:
                         AINZ_SPELLS = True
@@ -2397,13 +2397,13 @@ def main():
                         time.sleep(2)
                         quick_rts()
 
-                        tap('f')  # Unit Manager Hotkey
-                        time.sleep(0.7)
+                        # tap('f')  # Unit Manager Hotkey
+                        # time.sleep(0.7)
 
-                        ok = click_image_center("Winter/LookDownFinder.png",confidence=0.8,grayscale=False,offset=(0, -50))
-                        print("[LookDownFinder] Found =", ok)
+                        # ok = click_image_center("Winter/LookDownFinder.png",confidence=0.8,grayscale=False,offset=(0, -50))
+                        # print("[LookDownFinder] Found =", ok)
 
-                        tap('f')
+                        # tap('f')
 
                         # spam E while we do the path (stops when done_path becomes True)
                         def spam_e():
@@ -2413,28 +2413,21 @@ def main():
                             print("Done buying lanes")
 
                         Thread(target=spam_e, daemon=True).start()
-
-                        clicks_look_down = [(401, 404), (649, 777), (750, 875)]
-                        for pt in clicks_look_down:
-                            click(pt[0], pt[1], delay=1)
-                            time.sleep(1 if pt == (649, 777) else 0.2)
-
-                        press('o'); time.sleep(1); release('o')
-
-                        press('s')
+                        
+                        press('a')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[0])
-                        release('s')
+                        release('a')
 
                         tap('v')
                         time.sleep(1)
 
-                        press('a')
+                        press('w')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[1])
-                        release('a')
+                        release('w')
 
-                        press('d')
+                        press('s')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[2])
-                        release('d')
+                        release('s')
 
                         tap('v')
                         quick_rts()
@@ -2480,6 +2473,8 @@ def main():
                     if (not done_path) and w == 138:
                         print("Confirmed wave 138 — running pre-140 logic")
                         time.sleep(4)
+                        quick_rts()
+
                         def spam_e():
                             while not done_path and g_toggle:
                                 tap('e')
@@ -2487,44 +2482,25 @@ def main():
                             print("Done buying lanes")
 
                         Thread(target=spam_e, daemon=True).start()
-
-                        quick_rts()
-                        tap('f')
-                        time.sleep(0.7)
-
-                        ok = click_image_center("Winter/LookDownFinder.png",confidence=0.8,grayscale=False,offset=(0, -50))
-                        print("[LookDownFinder click] ok =", ok)
-
-                        tap('f')
-
-                        clicks_look_down = [(404, 400), (649, 772), (745, 858)]
-                        for pt in clicks_look_down:
-                            click(pt[0], pt[1], delay=1)
-                            time.sleep(1 if pt == (649, 772) else 0.3)
-
-                        press('o'); time.sleep(1); release('o')
-
-                        press('s')
+                        
+                        press('a')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[0])
-                        release('s')
+                        release('a')
 
                         tap('v')
                         time.sleep(1)
 
-                        press('a')
+                        press('w')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[1])
-                        release('a')
+                        release('w')
 
-                        press('d')
+                        press('s')
                         time.sleep(Settings.BUY_FINAL_LANE_DELAYS[2])
-                        release('d')
+                        release('s')
 
                         tap('v')
                         quick_rts()
-                        print("Repositioning Camera")
-                        time.sleep(1.5)
-                        tap_pg('left', hold=TURN_CAM)
-                        time.sleep(0.5)
+                        time.sleep(2)
 
                         done_path = True  # ✅ stop spam thread
 
