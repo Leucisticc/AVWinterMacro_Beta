@@ -2008,6 +2008,8 @@ def main():
                     ainz_pos = Settings.Unit_Positions['Ainz']
                     pos = Settings.Unit_Positions.get("Caloric_Unit")
 
+                    secure_select((ainz_pos[0]))
+                    
                     if Settings.USE_WD == True:
                         ainz_setup(unit="world des")
                     elif Settings.USE_DIO == True:
