@@ -13,6 +13,7 @@ from Tools import avMethods as avM
 from Tools import winTools as wt
 
 DEBUG_DIR = os.path.join("Resources", "debug_shots")
+WAVE_REGION = (587, 158, 40, 24)
 
 
 def _bbox_to_pyautogui_region(bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
@@ -22,6 +23,14 @@ def _bbox_to_pyautogui_region(bbox: tuple[int, int, int, int]) -> tuple[int, int
     """
     left, top, right, bottom = bbox
     return (int(left), int(top), max(1, int(right - left)), max(1, int(bottom - top)))
+
+
+def _pyautogui_region_to_bbox(region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """
+    Convert (x, y, width, height) -> (left, top, right, bottom).
+    """
+    x, y, width, height = region
+    return (int(x), int(y), int(x + width), int(y + height))
 
 
 def _get_frontmost_window_macos():
@@ -106,9 +115,8 @@ def test():
     print("window:", w)
     print("offset:", off)
 
-    # Matches the region used by Tools/avMethods.py (bbox style)
-    region_bbox = (326 + off[0], 48 + off[1], 373 + off[0], 79 + off[1])
-    img = wt.screenshot_region(_bbox_to_pyautogui_region(region_bbox))
+    region_bbox = _pyautogui_region_to_bbox(WAVE_REGION)
+    img = wt.screenshot_region(WAVE_REGION)
     if img is None:
         raise RuntimeError("Failed to capture wave region screenshot.")
 
@@ -125,8 +133,14 @@ def test():
     full_region_bbox = (int(w.left), int(w.top), int(w.left + w.width), int(w.top + w.height))
     full_img = wt.screenshot_region(_bbox_to_pyautogui_region(full_region_bbox))
     if full_img is not None:
-        rx1, ry1 = region_bbox[0] - int(w.left), region_bbox[1] - int(w.top)
-        rx2, ry2 = region_bbox[2] - int(w.left), region_bbox[3] - int(w.top)
+        full_w = max(1, int(w.width))
+        full_h = max(1, int(w.height))
+        scale_x = full_img.shape[1] / full_w
+        scale_y = full_img.shape[0] / full_h
+        rx1 = int(round((region_bbox[0] - int(w.left)) * scale_x))
+        ry1 = int(round((region_bbox[1] - int(w.top)) * scale_y))
+        rx2 = int(round((region_bbox[2] - int(w.left)) * scale_x))
+        ry2 = int(round((region_bbox[3] - int(w.top)) * scale_y))
         cv2.rectangle(full_img, (rx1, ry1), (rx2, ry2), (0, 0, 255), 2)
         cv2.putText(
             full_img,
@@ -143,9 +157,10 @@ def test():
     else:
         full_out_path = None
 
-    wave = avM.get_wave(off)
+    wave = avM.get_wave(region=WAVE_REGION, debug=True)
     print("wave:", wave)
-    print("region(abs):", region_bbox)
+    print("region(x, y, width, height):", WAVE_REGION)
+    print("region(abs bbox):", region_bbox)
     print("saved:", out_path)
     print("saved:", thresh_path)
     if full_out_path:

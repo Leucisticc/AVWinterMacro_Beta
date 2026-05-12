@@ -1,361 +1,433 @@
-from pynput import keyboard as pynput_keyboard
-from pynput import mouse as pynput_mouse
+"""
+Mouse Debug Tool
+─────────────────────────────────────────────────
+Z   Capture position + color
+H   Toggle cursor HUD (floating, follows mouse)
+Y   Region selection (click + drag overlay)
+M   Scroll test
+U   Next upgrade step
+K   Stop
+─────────────────────────────────────────────────
+"""
+
+import os
 import time
 import pyautogui
-import os
 from datetime import datetime
 from PIL import ImageDraw
-from threading import Thread
+from threading import Thread, Lock
+import tkinter as tk
 
-# ---------- Settings ----------
-SAVE_KEY   = "z"   # press Z to capture
-STOP_KEY   = "n"   # press N to stop
-SCROLL_KEY = "m"   # press M to run scroll test
-UPGRADE_KEY= "u"   # press U to test upgrades
-REGION_KEY = "y"   # press Y to draw region (drag mouse)
-HOVER_KEY = "h"    # press H to get a live mouse HUD
+from pynput import keyboard as pynput_keyboard
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+SAVE_KEY    = "z"
+STOP_KEY    = "k"
+SCROLL_KEY  = "m"
+UPGRADE_KEY = "u"
+REGION_KEY  = "y"
+HOVER_KEY   = "h"
+
+SAVE_DEBUG_IMAGES_ENABLED = False
+CROP_HALF  = 20
+ZOOM_SCALE = 6
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(PROJECT_ROOT, "Resources", "debug_shots")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-SAVE_DEBUG_IMAGES_ENABLED = False
-CROP_HALF = 20
-ZOOM_SCALE = 6
-HOVER_ON = False
-RUNNING = True
+_SEP  = "─" * 50
+_SEP2 = "═" * 50
 
-# ---------- Region Drawer State ----------
-_region_mouse_listener = None
-_region_drawing = False
-_region_start = None
 
-def _region_fmt(a, b):
-    x1, y1 = a
-    x2, y2 = b
-    left = min(x1, x2)
-    top = min(y1, y2)
-    width = abs(x2 - x1)
-    height = abs(y2 - y1)
-    return (left, top, width, height)
-
-def _region_on_click(x, y, button, pressed):
-    global _region_drawing, _region_start, _region_mouse_listener
-
-    # Use pyautogui coords to avoid pynput mismatch on mac
-    px, py = pyautogui.position()
-
-    if pressed:
-        _region_drawing = True
-        _region_start = (px, py)
-        print(f"\n[REGION] start: {_region_start}")
-    else:
-        if _region_drawing and _region_start is not None:
-            end = (px, py)
-            region = _region_fmt(_region_start, end)
-            print(f"[REGION] end:   {end}")
-            print(f"[REGION] region=(left, top, width, height): {region}")
-        _region_drawing = False
-        _region_start = None
-
-        # stop after one draw
-        if _region_mouse_listener is not None:
-            _region_mouse_listener.stop()
-            _region_mouse_listener = None
-
-def start_region_draw():
-    global _region_mouse_listener
-    if _region_mouse_listener is not None:
-        return
-    print("\n[REGION] Press and drag LEFT mouse. Release to print region.")
-    _region_mouse_listener = pynput_mouse.Listener(on_click=_region_on_click)
-    _region_mouse_listener.daemon = True
-    _region_mouse_listener.start()
-
-def cancel_region_draw():
-    global _region_mouse_listener, _region_drawing, _region_start
-    _region_drawing = False
-    _region_start = None
-    if _region_mouse_listener is not None:
-        _region_mouse_listener.stop()
-        _region_mouse_listener = None
-    print("\n[REGION] cancelled")
-
-# ---------- Helpers ----------
-def ts() -> str:
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+def _ts():
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
 
-def rgb_to_hex(rgb):
-    r, g, b = rgb
-    return f"#{r:02X}{g:02X}{b:02X}"
 
-def get_scale(full_img):
+def _rgb_hex(rgb):
+    return f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+
+
+def _backing_scale(img):
     sw, sh = pyautogui.size()
-    iw, ih = full_img.size
-    return iw / sw, ih / sh
+    return img.size[0] / sw, img.size[1] / sh
 
-def sample_from_screenshot(full_img, x_pt, y_pt, sample_half=1):
-    sx, sy = get_scale(full_img)
-    x_px = int(x_pt * sx)
-    y_px = int(y_pt * sy)
 
-    w, h = full_img.size
-    x_px = max(0, min(w - 1, x_px))
-    y_px = max(0, min(h - 1, y_px))
-
-    left = max(0, x_px - sample_half)
-    top = max(0, y_px - sample_half)
-    right = min(w - 1, x_px + sample_half)
-    bottom = min(h - 1, y_px + sample_half)
-
-    px = []
-    for yy in range(top, bottom + 1):
-        for xx in range(left, right + 1):
-            p = full_img.getpixel((xx, yy))
+def _sample_color(img, x_pt, y_pt, half=1):
+    sx, sy = _backing_scale(img)
+    xpx = max(0, min(img.size[0] - 1, int(x_pt * sx)))
+    ypx = max(0, min(img.size[1] - 1, int(y_pt * sy)))
+    samples = []
+    for yy in range(max(0, ypx - half), min(img.size[1] - 1, ypx + half) + 1):
+        for xx in range(max(0, xpx - half), min(img.size[0] - 1, xpx + half) + 1):
+            p = img.getpixel((xx, yy))
             if isinstance(p, tuple) and len(p) >= 3:
-                px.append((p[0], p[1], p[2]))
+                samples.append(p[:3])
+    if not samples:
+        return (0, 0, 0), xpx, ypx, sx
+    mid = len(samples) // 2
+    r = sorted(s[0] for s in samples)[mid]
+    g = sorted(s[1] for s in samples)[mid]
+    b = sorted(s[2] for s in samples)[mid]
+    return (r, g, b), xpx, ypx, sx
 
-    if not px:
-        return (0, 0, 0), (x_px, y_px), (sx, sy)
 
-    rs = sorted(p[0] for p in px)
-    gs = sorted(p[1] for p in px)
-    bs = sorted(p[2] for p in px)
-    mid = len(px) // 2
-    return (rs[mid], gs[mid], bs[mid]), (x_px, y_px), (sx, sy)
-
-def draw_cross(draw, x, y, size=25, width=3):
+def _draw_cross(draw, x, y, size=25, width=3):
     draw.line((x - size, y, x + size, y), width=width)
     draw.line((x, y - size, x, y + size), width=width)
+
 
 def click(x, y, delay=0.2):
     pyautogui.moveTo(x, y)
     time.sleep(delay)
     pyautogui.click()
 
-def pixel_matches_seen(x, y, rgb, tol=50, sample_half=2):
+
+def pixel_matches(x, y, rgb, tol=50, half=2):
+    """Returns True if the pixel at (x, y) is within `tol` of `rgb`."""
     img = pyautogui.screenshot()
-    r, g, b = img.getpixel((x, y))
-    return (
-        abs(r - rgb[0]) <= tol and
-        abs(g - rgb[1]) <= tol and
-        abs(b - rgb[2]) <= tol
-    )
+    s, _, _, _ = _sample_color(img, x, y, half=half)
+    return all(abs(s[i] - rgb[i]) <= tol for i in range(3))
 
-# ---------- Live Hover (console HUD) ----------
-_last_hud = ""
-def hud_loop():
-    global _last_hud
-    while RUNNING:
-        if not HOVER_ON:
-            time.sleep(0.1)
-            continue
 
+# ─── Floating HUD ─────────────────────────────────────────────────────────────
+class FloatingHUD:
+    _W   = 238
+    _H   = 126
+    _OFF = 28
+
+    def __init__(self, root):
+        self.root    = root
+        self.visible = False
+        self._lock   = Lock()
+        self._data   = {}
+
+        win = tk.Toplevel(root)
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        win.wm_attributes("-alpha", 0.92)
+        win.configure(bg="#0e0e1c")
+        win.withdraw()
+        self._win = win
+
+        self._lbl = tk.Label(
+            win, bg="#0e0e1c", fg="#d0d8ff",
+            font=("Menlo", 11), justify="left",
+            padx=12, pady=10,
+        )
+        self._lbl.pack()
+
+        Thread(target=self._sampler, daemon=True).start()
+
+    def _sampler(self):
+        """Samples color in background every 220 ms to avoid blocking the UI."""
+        while True:
+            time.sleep(0.22)
+            if not self.visible:
+                continue
+            try:
+                x, y = pyautogui.position()
+                img  = pyautogui.screenshot()
+                rgb, xpx, ypx, sx = _sample_color(img, x, y)
+                with self._lock:
+                    self._data = dict(
+                        x=x, y=y, rgb=rgb,
+                        hex=_rgb_hex(rgb),
+                        xpx=xpx, ypx=ypx, sx=sx,
+                    )
+            except Exception:
+                pass
+
+    def toggle(self):
+        self.visible = not self.visible
+        if self.visible:
+            self._win.deiconify()
+            print(f"\n  [H]  Cursor HUD on")
+        else:
+            self._win.withdraw()
+            print(f"\n  [H]  Cursor HUD off")
+
+    def update(self):
+        if not self.visible:
+            return
         try:
             x, y = pyautogui.position()
-            img = pyautogui.screenshot()
-            rgb, (xpx, ypx), (sx, sy) = sample_from_screenshot(img, x, y, sample_half=1)
-            hx = rgb_to_hex(rgb)
+            with self._lock:
+                d = dict(self._data)
 
-            line = f"Mouse: ({x:4d},{y:4d}) | px: ({xpx:4d},{ypx:4d}) | RGB: {rgb} {hx} | scale: {sx:.2f},{sy:.2f}"
-            if line != _last_hud:
-                print("\r" + line + " " * 10, end="", flush=True)
-                _last_hud = line
-        except Exception as e:
-            print(f"\n[HUD] error: {e}")
+            rgb = d.get("rgb", (0, 0, 0))
+            hx  = d.get("hex", "#000000")
+            xpx = d.get("xpx", 0)
+            ypx = d.get("ypx", 0)
+            sx  = d.get("sx", 1.0)
 
-        time.sleep(0.05)
+            self._lbl.config(text=(
+                f"  Position   {x}, {y}\n"
+                f"  Pixel      {xpx}, {ypx}\n"
+                f"  RGB        {rgb[0]}, {rgb[1]}, {rgb[2]}\n"
+                f"  Hex        {hx}\n"
+                f"  Scale      {sx:.2f}x"
+            ))
 
-def toggle_hover():
-    global HOVER_ON, _last_hud
-    HOVER_ON = not HOVER_ON
-    _last_hud = ""
-    if HOVER_ON:
-        print("\n[HUD] ON")
-    else:
-        print("\n[HUD] OFF")
+            sw, sh = pyautogui.size()
+            o  = self._OFF
+            wx = x + o if x + o + self._W < sw else x - self._W - o
+            wy = y + o if y + o + self._H < sh else y - self._H - o
+            self._win.geometry(f"+{wx}+{wy}")
+            self._win.wm_attributes("-topmost", True)
+            self._win.lift()
+        except Exception:
+            pass
 
-# ---------- Capture ----------
-def save_debug_images():
-    t = ts()
-    x_pt, y_pt = pyautogui.position()
-    full_img = pyautogui.screenshot()
-    rgb, (x_px, y_px), (sx, sy) = sample_from_screenshot(full_img, x_pt, y_pt, sample_half=2)
-    hx = rgb_to_hex(rgb)
 
-    print("\n" + "-" * 60)
-    print(f"Saved @ ({x_pt},{y_pt}) -> px ({x_px},{y_px})  RGB={rgb} {hx}  Scale={sx:.2f},{sy:.2f}")
+# ─── Region Overlay ───────────────────────────────────────────────────────────
+class RegionOverlay:
+    _ALPHA   = 0.18
+    _FILL    = "#4488ff"
+    _OUTLINE = "#88ccff"
+
+    def __init__(self, root):
+        self.root   = root
+        self.active = False
+        self._win   = None
+        self._cnv   = None
+        self._rect  = None
+        self._start = None
+        self._ox    = 0
+        self._oy    = 0
+
+    def toggle(self):
+        if self.active:
+            self._close()
+        else:
+            self._open()
+
+    def _open(self):
+        self.active = True
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        win.wm_attributes("-alpha", self._ALPHA)
+        win.configure(bg="black")
+        win.geometry(f"{sw}x{sh}+0+0")
+        win.update()
+        self._ox  = win.winfo_rootx()
+        self._oy  = win.winfo_rooty()
+        self._win = win
+
+        cnv = tk.Canvas(
+            win, width=sw, height=sh,
+            bg="black", highlightthickness=0, cursor="crosshair",
+        )
+        cnv.pack()
+        cnv.bind("<Button-1>",        self._press)
+        cnv.bind("<B1-Motion>",       self._drag)
+        cnv.bind("<ButtonRelease-1>", self._release)
+        cnv.bind("<Escape>",          lambda _: self._close())
+        cnv.focus_set()
+        self._cnv = cnv
+
+        print(f"\n{_SEP}")
+        print("  Region Selection")
+        print("  Click and drag to draw a region.")
+        print("  Release to confirm.  Esc to cancel.")
+        print(_SEP)
+
+    def _press(self, e):
+        self._start = (e.x, e.y)
+
+    def _drag(self, e):
+        if self._start is None:
+            return
+        if self._rect:
+            self._cnv.delete(self._rect)
+        sx, sy = self._start
+        self._rect = self._cnv.create_rectangle(
+            sx, sy, e.x, e.y,
+            outline=self._OUTLINE, width=2,
+            fill=self._FILL, stipple="gray25",
+        )
+
+    def _release(self, e):
+        if self._start is None:
+            return
+        x1 = self._start[0] + self._ox
+        y1 = self._start[1] + self._oy
+        x2 = e.x + self._ox
+        y2 = e.y + self._oy
+        l = min(x1, x2);  t = min(y1, y2)
+        w = abs(x2 - x1); h = abs(y2 - y1)
+        print(f"\n{_SEP}")
+        print("  Region Result")
+        print(f"  Coords     left={l}  top={t}  width={w}  height={h}")
+        print(f"  Code       _r({l}, {t}, {w}, {h})")
+        print(_SEP)
+        self._close()
+
+    def _close(self):
+        self.active = False
+        self._start = None
+        if self._win:
+            self._win.destroy()
+            self._win = None
+        self._cnv = self._rect = None
+
+# ─── Capture ─────────────────────────────────────────────────────────────────
+def capture():
+    x, y = pyautogui.position()
+    img  = pyautogui.screenshot()
+    rgb, xpx, ypx, sx = _sample_color(img, x, y, half=2)
+    hx = _rgb_hex(rgb)
+
+    print(f"\n{_SEP}")
+    print("  Capture")
+    print(f"  Position   ({x}, {y})")
+    # print(f"  Position   ({x}, {y})  ->  pixel ({xpx}, {ypx})")
+    print(f"  Color      RGB ({rgb[0]}, {rgb[1]}, {rgb[2]})   {hx}")
+    print(f"  Scale      {sx:.2f}x")
 
     if not SAVE_DEBUG_IMAGES_ENABLED:
-        print("[CAPTURE] Image saving disabled")
-        print("-" * 60)
+        print("  Images     disabled  (set SAVE_DEBUG_IMAGES_ENABLED = True to save)")
+        print(_SEP)
         return
 
-    full_annotated = full_img.copy()
-    draw = ImageDraw.Draw(full_annotated)
-    draw_cross(draw, x_px, y_px, size=30, width=4)
+    t   = _ts()
+    iw, ih = img.size
+    chx = int(CROP_HALF * sx)
+    chy = int(CROP_HALF * sx)
 
-    full_path = os.path.join(OUT_DIR, f"full_{t}_pt({x_pt},{y_pt})_px({x_px},{y_px})_rgb{rgb}_{hx}.png")
-    full_annotated.save(full_path)
+    full = img.copy()
+    _draw_cross(ImageDraw.Draw(full), xpx, ypx, size=30, width=4)
+    full_path = os.path.join(OUT_DIR, f"full_{t}_pt({x},{y})_{hx}.png")
+    full.save(full_path)
 
-    crop_half_px_x = int(CROP_HALF * sx)
-    crop_half_px_y = int(CROP_HALF * sy)
+    cl = max(0, xpx - chx);  cr = min(iw, xpx + chx)
+    ct = max(0, ypx - chy);  cb = min(ih, ypx + chy)
+    crop = img.crop((cl, ct, cr, cb)).copy()
+    _draw_cross(ImageDraw.Draw(crop), xpx - cl, ypx - ct)
+    crop.save(os.path.join(OUT_DIR, f"crop_{t}_{hx}.png"))
+    crop.resize((crop.size[0] * ZOOM_SCALE, crop.size[1] * ZOOM_SCALE)).save(
+        os.path.join(OUT_DIR, f"zoom_{t}_{hx}.png")
+    )
+    print(f"  Saved      {os.path.basename(full_path)}")
+    print(_SEP)
 
-    w, h = full_img.size
-    left = max(0, x_px - crop_half_px_x)
-    top = max(0, y_px - crop_half_px_y)
-    right = min(w, x_px + crop_half_px_x)
-    bottom = min(h, y_px + crop_half_px_y)
 
-    crop = full_img.crop((left, top, right, bottom))
-    crop_annotated = crop.copy()
-    cdraw = ImageDraw.Draw(crop_annotated)
-    cx = x_px - left
-    cy = y_px - top
-    draw_cross(cdraw, cx, cy, size=20, width=3)
-
-    crop_path = os.path.join(OUT_DIR, f"crop_{t}_rgb{rgb}_{hx}.png")
-    crop_annotated.save(crop_path)
-
-    zoom = crop_annotated.resize((crop_annotated.size[0] * ZOOM_SCALE, crop_annotated.size[1] * ZOOM_SCALE))
-    zoom_path = os.path.join(OUT_DIR, f"zoom_{t}_rgb{rgb}_{hx}.png")
-    zoom.save(zoom_path)
-
-    # print(f" Full: {full_path}")
-    # print(f" Crop: {crop_path}")
-    # print(f" Zoom: {zoom_path}")
-    print("-" * 60)
-
-def stop():
-    global RUNNING
-    RUNNING = False
-    cancel_region_draw()
-    print("\nStopping...")
-
+# ─── Scroll Test ──────────────────────────────────────────────────────────────
 def scroll_test():
-    print("\nRunning scroll test...")
+    print(f"\n{_SEP}")
+    print("  Scroll Test")
     for i in range(3):
         pyautogui.scroll(-1)
-        print(f"Scroll step {i+1}/3")
+        print(f"  Step {i + 1} / 3")
         time.sleep(0.2)
-    print("Scroll test done.")
+    print("  Done.")
+    print(_SEP)
 
-# ---- Upgrade Testing ----
-upgrade_step = 0
+
+# ─── Upgrade Test ─────────────────────────────────────────────────────────────
+_upgrade_step = 0
+
 
 def run_next_upgrade():
-    global upgrade_step
-    print(f"\nRunning upgrade step {upgrade_step}")
+    global _upgrade_step
+    s = _upgrade_step
 
-    if upgrade_step == 0:
-        pyautogui.moveTo(775, 500)
+    def _mv(x, y):
+        pyautogui.moveTo(x, y)
         time.sleep(0.2)
-        click(959, 473, delay=0.2)
-        time.sleep(0.8)
-        click(1112, 309, delay=0.2)
-        print("Fortune complete")
 
-    elif upgrade_step == 1:
-        pyautogui.moveTo(775, 500)
-        time.sleep(0.2)
+    print(f"\n{_SEP}")
+    print(f"  Upgrade Step {s}")
+
+    if s == 0:
+        _mv(775, 500)
+        click(959, 473); time.sleep(0.8); click(1112, 309)
+        print("  Fortune    done")
+    elif s == 1:
+        _mv(775, 500)
         for _ in range(6):
             pyautogui.scroll(-1)
             time.sleep(0.2)
-
-        click(959, 635, delay=0.2)
-        time.sleep(0.5)
-        click(959, 635, delay=0.2)
-        time.sleep(0.8)
-
-        pyautogui.moveTo(775, 500)
-        pyautogui.scroll(100)
-        click(1112, 309, delay=0.2)
-        print("Damage complete")
-
-    elif upgrade_step == 2:
-        pyautogui.moveTo(775, 500)
-        time.sleep(0.2)
+        click(959, 635); time.sleep(0.5); click(959, 635); time.sleep(0.8)
+        _mv(775, 500); pyautogui.scroll(100); click(1112, 309)
+        print("  Damage     done")
+    elif s == 2:
+        _mv(775, 500)
         for _ in range(3):
             pyautogui.scroll(-1)
             time.sleep(0.2)
-
-        click(962, 621, delay=0.2)
-        time.sleep(0.8)
-
-        pyautogui.moveTo(775, 500)
-        pyautogui.scroll(100)
-        click(1112, 309, delay=0.2)
-        print("Range complete")
-
-    elif upgrade_step == 3:
-        pyautogui.moveTo(775, 500)
-        time.sleep(0.2)
-        click(957, 635, delay=0.2)
-        time.sleep(0.5)
-        click(957, 635, delay=0.2)
-        time.sleep(0.8)
-
-        pyautogui.moveTo(775, 500)
-        pyautogui.scroll(100)
-        click(1112, 309, delay=0.2)
-        print("Speed complete")
-
-    elif upgrade_step == 4:
-        pyautogui.moveTo(775, 500)
-        time.sleep(0.2)
+        click(962, 621); time.sleep(0.8)
+        _mv(775, 500); pyautogui.scroll(100); click(1112, 309)
+        print("  Range      done")
+    elif s == 3:
+        _mv(775, 500)
+        click(957, 635); time.sleep(0.5); click(957, 635); time.sleep(0.8)
+        _mv(775, 500); pyautogui.scroll(100); click(1112, 309)
+        print("  Speed      done")
+    elif s == 4:
+        _mv(775, 500)
         for _ in range(9):
             pyautogui.scroll(-1)
             time.sleep(0.2)
+        click(955, 635); time.sleep(0.5); click(955, 635); time.sleep(0.8)
+        _mv(775, 500); pyautogui.scroll(100); click(1112, 309)
+        print("  Armor      done")
 
-        click(955, 635, delay=0.2)
-        time.sleep(0.5)
-        click(955, 635, delay=0.2)
-        time.sleep(0.8)
+    _upgrade_step = (s + 1) % 5
+    if _upgrade_step == 0:
+        print("  Cycle reset.")
+    print(_SEP)
 
-        pyautogui.moveTo(775, 500)
-        pyautogui.scroll(100)
-        click(1112, 309, delay=0.2)
-        print("Armor complete")
 
-    upgrade_step += 1
-    if upgrade_step > 4:
-        upgrade_step = 0
-        print("Cycle reset\nn")
+# ─── Stop ─────────────────────────────────────────────────────────────────────
+def stop():
+    print(f"\n{_SEP}\n  Stopped.\n{_SEP}\n")
+    root.destroy()
 
-# ---------- Hotkeys ----------
+
+# ─── Keyboard ─────────────────────────────────────────────────────────────────
 def on_press(key):
     try:
-        if hasattr(key, "char") and key.char:
-            k = key.char.lower()
-            if k == SAVE_KEY:
-                save_debug_images()
-            elif k == STOP_KEY:
-                stop()
-            elif k == SCROLL_KEY:
-                scroll_test()
-            elif k == UPGRADE_KEY:
-                run_next_upgrade()
-            elif k == REGION_KEY:
-                # one-shot region draw; press Y again to cancel if needed
-                if _region_mouse_listener is None:
-                    start_region_draw()
-                else:
-                    cancel_region_draw()
-            elif k == HOVER_KEY:
-                toggle_hover()
+        k = key.char.lower() if hasattr(key, "char") and key.char else ""
+        if   k == SAVE_KEY:    Thread(target=capture,          daemon=True).start()
+        elif k == STOP_KEY:    root.after(0, stop)
+        elif k == SCROLL_KEY:  Thread(target=scroll_test,      daemon=True).start()
+        elif k == UPGRADE_KEY: Thread(target=run_next_upgrade,  daemon=True).start()
+        elif k == REGION_KEY:  root.after(0, overlay.toggle)
+        elif k == HOVER_KEY:   root.after(0, hud.toggle)
     except Exception:
         pass
 
-print("Mouse debug running.")
-print("Hotkeys:\nZ = Capture\nM = Scroll test\nU = Next upgrade\nY = Draw region\nH = Turn HUD on\nN = Stop.")
 
-listener = pynput_keyboard.Listener(on_press=on_press)
-listener.daemon = True
-listener.start()
+# ─── Main ─────────────────────────────────────────────────────────────────────
+def _tick():
+    hud.update()
+    root.after(40, _tick)
 
-Thread(target=hud_loop, daemon=True).start()
 
-while RUNNING:
-    time.sleep(0.1)
+root    = tk.Tk()
+root.withdraw()
+hud     = FloatingHUD(root)
+overlay = RegionOverlay(root)
 
+print(f"\n{_SEP2}")
+print("  Mouse Debug Tool")
+print(_SEP2)
+print(f"  {'Z':<4}  Capture position + color to console")
+print(f"  {'H':<4}  Cursor HUD  (floating window, follows mouse)")
+print(f"  {'Y':<4}  Region selection  (click + drag overlay)")
+print(f"  {'M':<4}  Scroll test")
+print(f"  {'U':<4}  Next upgrade step")
+print(f"  {'K':<4}  Stop")
+print(f"{_SEP2}\n")
+
+pynput_keyboard.Listener(on_press=on_press, daemon=True).start()
+
+root.after(40, _tick)
+root.mainloop()
 print("Done.")

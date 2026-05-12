@@ -61,13 +61,9 @@ def click_image_center(
             loc = None
 
         if loc is not None:
-            if bt.appSettings.get_bool("USE_FAST_IMAGE_DETECTION", "USE_MSS", default=False):
-                left, top, width, height = loc
-                cx = int(left + width // 2)
-                cy = int(top + height // 2)
-            else:
-                cx, cy = pyautogui.center(loc)
-                cx, cy = bt._retina_to_screen(cx, cy)
+            left, top, width, height = loc
+            cx = int(left + width // 2)
+            cy = int(top + height // 2)
 
             ox, oy = offset if offset is not None else (0, 0)
             click(cx + int(ox), cy + int(oy), delay=delay, right_click=right_click)
@@ -205,7 +201,6 @@ def ensure_roblox_window_positioned():
     except Exception as e:
         print(f"[Window] Roblox window was not positioned correctly; correction failed: {e}")
         return False
-
 
 # -------------------------
 # Webhook Helpers

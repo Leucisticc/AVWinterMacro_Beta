@@ -44,13 +44,6 @@ def _locate_image(img_path: str, confidence: float, grayscale: bool, region: tup
     if template is None:
         return None
 
-    # Templates captured with cmd+shift+4 are at Retina (2×) resolution.
-    # mss region capture uses logical coords and returns 1× pixels, so scale the template down.
-    scale = _get_backing_scale()
-    if scale != 1.0:
-        th, tw = template.shape[:2]
-        template = cv2.resize(template, (max(1, int(tw / scale)), max(1, int(th / scale))), interpolation=cv2.INTER_AREA)
-
     if region is None:
         sw, sh = pyautogui.size()
         region = (0, 0, sw, sh)
@@ -61,18 +54,44 @@ def _locate_image(img_path: str, confidence: float, grayscale: bool, region: tup
 
     haystack = cv2.cvtColor(haystack_bgr, cv2.COLOR_BGR2GRAY) if grayscale else haystack_bgr
 
-    th, tw = template.shape[:2]
-    if haystack.shape[0] < th or haystack.shape[1] < tw:
+    candidates = [template]
+    scale = _get_backing_scale()
+    if scale != 1.0:
+        th, tw = template.shape[:2]
+        scaled = cv2.resize(
+            template,
+            (max(1, int(tw / scale)), max(1, int(th / scale))),
+            interpolation=cv2.INTER_AREA,
+        )
+        candidates.append(scaled)
+
+    best = (0.0, None, template.shape[:2])
+    for candidate in candidates:
+        th, tw = candidate.shape[:2]
+        if haystack.shape[0] < th or haystack.shape[1] < tw:
+            continue
+
+        result = cv2.matchTemplate(haystack, candidate, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        if max_val > best[0]:
+            best = (max_val, max_loc, (th, tw))
+
+    max_val, max_loc, (th, tw) = best
+    if max_loc is None or max_val < confidence:
         return None
 
-    result = cv2.matchTemplate(haystack, template, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-    if max_val < confidence:
-        return None
+    rx, ry, rw, rh = region
+    haystack_h, haystack_w = haystack.shape[:2]
+    scale_x = haystack_w / max(1, rw)
+    scale_y = haystack_h / max(1, rh)
 
-    # Coordinates are already in logical screen space (mss uses logical coords)
-    rx, ry, _, _ = region
-    return (int(rx + max_loc[0]), int(ry + max_loc[1]), int(tw), int(th))
+    # matchTemplate returns offsets in captured-image pixels. Convert back to
+    # pyautogui logical screen coordinates before callers click the returned box.
+    left = rx + (max_loc[0] / scale_x)
+    top = ry + (max_loc[1] / scale_y)
+    width = tw / scale_x
+    height = th / scale_y
+    return (int(round(left)), int(round(top)), int(round(width)), int(round(height)))
 
 
 def does_exist(imageDirectory: str, confidence: float, grayscale: bool, region: tuple | None = None) -> bool:

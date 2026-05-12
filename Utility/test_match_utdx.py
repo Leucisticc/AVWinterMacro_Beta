@@ -24,8 +24,8 @@ except Exception:
 MODE          = "bt"              # "match" or "pixel"
 
 # match mode
-TEMPLATE_NAME = "Alert.png"
-REGION        = (595, 158, 23, 24)  # exact region used in Winter_Event.py
+TEMPLATE_NAME = "UniversalTear.png"
+REGION        = (889, 203, 403, 438)  # TEAR_REGION from UTDX_Event.py
 CONFIDENCE    = 0.7
 GRAYSCALE     = False
 
@@ -36,11 +36,12 @@ PIXEL_TOL     = 20
 PIXEL_SAMPLE  = 0                    # sample_half (0 = single pixel, 1 = 3×3 median)
 # ─────────────────────────────────────────────────────────────────────────────
 
-BASE_DIR      = Path(__file__).resolve().parents[1]
-RESOURCES_DIR = BASE_DIR / "Resources"
+BASE_DIR      = Path(__file__).resolve().parent
+PROJECT_ROOT  = BASE_DIR.parent
+RESOURCES_DIR = PROJECT_ROOT / "UTDX" / "utdx-images"
 TEMPLATE_PATH = RESOURCES_DIR / TEMPLATE_NAME
 DEBUG_DIR     = RESOURCES_DIR / "debug_shots"
-DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+DEBUG_DIR.mkdir(exist_ok=True)
 
 
 def take_full_screenshot() -> Image.Image | None:
@@ -198,12 +199,12 @@ def run_pixel_test():
 
 
 def run_bt_test():
-    """Call bt.does_exist exactly as Winter_Event.py does and report what happens."""
+    """Call botTools matching against the UTDX image folder and report what happens."""
     import sys
-    sys.path.insert(0, str(BASE_DIR))
+    sys.path.insert(0, str(PROJECT_ROOT))
     from Tools import botTools as bt
 
-    print(f"Template : {TEMPLATE_NAME}")
+    print(f"Template : {TEMPLATE_PATH}")
     print(f"Region   : {REGION}")
     print(f"Confidence: {CONFIDENCE}  Grayscale: {GRAYSCALE}")
     print()
@@ -225,10 +226,12 @@ def run_bt_test():
 
         scale = _get_backing_scale()
         print(f"  backing scale    : {scale}×")
+        candidates = [("original", raw)]
         if scale != 1.0:
             th_r, tw_r = raw.shape[:2]
-            raw = cv2.resize(raw, (max(1, int(tw_r/scale)), max(1, int(th_r/scale))), interpolation=cv2.INTER_AREA)
-            print(f"  template (scaled): {raw.shape[1]}×{raw.shape[0]}")
+            scaled = cv2.resize(raw, (max(1, int(tw_r/scale)), max(1, int(th_r/scale))), interpolation=cv2.INTER_AREA)
+            candidates.append((f"{scale:g}x-down", scaled))
+            print(f"  template (scaled): {scaled.shape[1]}×{scaled.shape[0]}")
 
         if region is None:
             sw, sh = pyautogui.size()
@@ -241,29 +244,43 @@ def run_bt_test():
         print(f"  grab size        : {grab.shape[1]}×{grab.shape[0]} px")
 
         haystack = cv2.cvtColor(grab, cv2.COLOR_BGR2GRAY) if grayscale else grab
-        th, tw = raw.shape[:2]
-        if haystack.shape[0] < th or haystack.shape[1] < tw:
-            print(f"  ERROR: grab ({grab.shape[1]}×{grab.shape[0]}) smaller than template ({tw}×{th})")
-            return None
-        result = cv2.matchTemplate(haystack, raw, cv2.TM_CCOEFF_NORMED)
-        _, max_val, _, _ = cv2.minMaxLoc(result)
-        print(f"  confidence       : {max_val:.4f}  (threshold={confidence})")
+        best = (0.0, "none", raw.shape[:2])
+        for label, candidate in candidates:
+            th, tw = candidate.shape[:2]
+            if haystack.shape[0] < th or haystack.shape[1] < tw:
+                print(f"  skipped {label:<9}: grab ({grab.shape[1]}×{grab.shape[0]}) smaller than template ({tw}×{th})")
+                continue
+            result = cv2.matchTemplate(haystack, candidate, cv2.TM_CCOEFF_NORMED)
+            _, score, _, _ = cv2.minMaxLoc(result)
+            print(f"  confidence {label:<9}: {score:.4f}  (threshold={confidence})")
+            if score > best[0]:
+                best = (score, label, candidate.shape[:2])
+
+        max_val, best_label, best_size = best
+        print(f"  best scale       : {best_label}")
         print(f"  RESULT: {'✅ MATCH' if max_val >= confidence else '❌ NO MATCH'}")
 
         # Save the live grab and scaled template so you can visually compare them
         grab_out = str(DEBUG_DIR / "bt_live_grab.png")
         tmpl_out = str(DEBUG_DIR / "bt_live_template.png")
         cv2.imwrite(grab_out, grab)
-        cv2.imwrite(tmpl_out, raw)
+        best_template = next((candidate for label, candidate in candidates if label == best_label), raw)
+        cv2.imwrite(tmpl_out, best_template)
         print(f"  Saved grab      → {grab_out}")
         print(f"  Saved template  → {tmpl_out}")
 
         return _orig(img_path, confidence, grayscale, region)
 
     bt._locate_image = _debug_locate
-    result = bt.does_exist(TEMPLATE_NAME, confidence=CONFIDENCE, grayscale=GRAYSCALE, region=REGION)
+    loc = bt._locate_image(str(TEMPLATE_PATH), confidence=CONFIDENCE, grayscale=GRAYSCALE, region=REGION)
+    result = loc is not None
     print()
-    print(f"bt.does_exist returned: {result}")
+    print(f"bt._locate_image returned match: {result}")
+    if loc is not None:
+        left, top, width, height = loc
+        center = (left + width // 2, top + height // 2)
+        print(f"bt._locate_image box   : {loc}")
+        print(f"click_image_center pos : {center}")
 
 
 if __name__ == "__main__":

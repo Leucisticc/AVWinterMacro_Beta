@@ -5,10 +5,10 @@ import time
 from typing import Any
 
 import requests
-webhook_url = 'YOUR_URL_HERE'
+webhook_url = ''
 WEBHOOK_MAX_RETRIES = 3
 WEBHOOK_TIMEOUT_SECONDS = 15
-DOUBLE_PRESENTS = False
+DOUBLE_PRESENTS = True
 if DOUBLE_PRESENTS:
     PRESENTS = 420000
 else:
@@ -72,6 +72,8 @@ def _build_embed_fields(
     win: int | None = None,
     lose: int | None = None,
     rewards: int | None = None,
+    reward_name: str = "Rewards",
+    average_rewards: int | None = None,
 ):
     fields = [
         {"name": "🕒 Run Time", "value": str(run_time), "inline": True},
@@ -93,17 +95,25 @@ def _build_embed_fields(
                 {"name": "📈 Success Rate", "value": f"{success_rate:.2f}%", "inline": True},
                 {"name": "🔁 Total Runs", "value": str(total), "inline": True},
                 {
-                    "name": "💰 Rewards",
+                    "name": f"💰 {reward_name}",
                     "value": f"~ {_format_number(total_rewards)} collected",
                     "inline": True,
                 },
                 {
-                    "name": "⏱️ Rewards / Hour",
+                    "name": f"⏱️ {reward_name} / Hour",
                     "value": f"~ {_format_number(hourly_rate)}/hr" if hourly_rate > 0 else "Calculating...",
                     "inline": True,
                 },
             ]
         )
+        if average_rewards is not None:
+            fields.append(
+                {
+                    "name": f"📊 Average {reward_name}",
+                    "value": f"~ {_format_number(average_rewards)} per win",
+                    "inline": True,
+                }
+            )
     else:
         total = _to_int(num_runs, 0)
         fields.append({"name": "🔁 Total Runs", "value": str(total), "inline": True})
@@ -120,6 +130,8 @@ def send_webhook(
     win: int | None = None,
     lose: int | None = None,
     rewards: int | None = None,
+    reward_name: str = "Rewards",
+    average_rewards: int | None = None,
     enabled: bool = True,
     alert_text: str | None = None,
 ):
@@ -153,6 +165,8 @@ def send_webhook(
                     win=win,
                     lose=lose,
                     rewards=rewards,
+                    reward_name=reward_name,
+                    average_rewards=average_rewards,
                 ),
                 "image": {"url": "attachment://screenshot.png"} if img is not None else None,
                 "thumbnail": {
