@@ -32,7 +32,7 @@ SETTINGS_CLOSE = (1325, 226)
 AUTO_START_CHECK = (1280, 567)
 AUTO_REPLAY_CHECK = (894, 567)
 ALERT_REGION = (756, 400, 160, 64)
-WAVE_REGION = (587, 158, 40, 24)
+WAVE_REGION = (590, 158, 55, 24)
 DEBUG_WAVE = False
 
 AUTO_PLAY = (1357, 601)
@@ -243,7 +243,8 @@ def get_wave():
 def restart_match_fast():
     """Clicks through the UI to restart a match."""
     alert_found = False
-    while not alert_visible() and alert_found == False:
+    
+    while not get_wave() <= 0:
         gh.click(218, 817)
         time.sleep(0.2)
         gh.click(1249, 426)
@@ -252,7 +253,8 @@ def restart_match_fast():
         time.sleep(0.2)
         gh.click(816, 541)
         time.sleep(0.5)
-        while pixel_matches_at(881,529,(119,119,119),tol=20,sample_half=0):
+        
+        while alert_visible():
             gh.click(1325, 226)
             time.sleep(0.1)
         time.sleep(0.4)
@@ -288,11 +290,6 @@ def spring_event():
         while not pixel_matches_at(*COUNTDOWN,(255,255,255),tol=20,sample_half=0) and get_wave() >= 1:
             time.sleep(0.1)
         time.sleep(3)
-        #Disable Auto play
-        print("Disable Auto play")
-        while auto_play_enabled():
-            gh.click(AUTO_PLAY)
-            time.sleep(0.4)
         
         while get_wave() <= 3:
             time.sleep(6)
@@ -311,17 +308,23 @@ def spring_event():
             time.sleep(0.2)
             while pixel_matches_at(1195,159, (255,255,255),tol=20,sample_half=0):
                 gh.click(CLOSE)
+                time.sleep(0.1)
+            time.sleep(0.5)
             while pixel_matches_at(1126,275, (75,165,95),tol=20,sample_half=0) or pixel_matches_at(1126,275, (93,203,116),tol=20,sample_half=0):
                 gh.click(CONFIRM_WALL)
+                time.sleep(0.1)
         
         while not get_wave() >= 15:
+            time.sleep(0.3)
+        
+        while get_wave() < 20:  
+            print("Skipping to 20")
+            gh.tap("e")
             time.sleep(0.1)
-            
-        gh.tap("e")
-        time.sleep(0.2)
-        gh.click(SKIP_WAVE)
-        time.sleep(0.2)
-        gh.click(SKIP_WAVE)
+            gh.click(SKIP_WAVE)
+            time.sleep(0.1)
+            while pixel_matches_at(1195,159, (255,255,255),tol=20,sample_half=0):
+                gh.click(CLOSE)
         runs += 1
         maybe_send_run_webhook(session_start=session_start, wins=runs, losses=0)
 
