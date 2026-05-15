@@ -21,7 +21,6 @@ REWARDS_PER_WIN = 5400
 VOTE_START_POS = (840, 228)
 
 # Spring
-# COUNTDOWN = (1137, 153)
 COUNTDOWN = (1128, 150)
 CONFIRM_WALL = (1075, 284)
 SKIP_WAVE = (634, 357)
@@ -227,6 +226,7 @@ def check_settings():
 
 
 def alert_visible():
+    print(f"Alert: {bt.does_exist("Alert.png", confidence=0.9, grayscale=False, region=ALERT_REGION)}")
     return bt.does_exist("Alert.png", confidence=0.9, grayscale=False, region=ALERT_REGION)
 
 
@@ -243,8 +243,8 @@ def get_wave():
 def restart_match_fast():
     """Clicks through the UI to restart a match."""
     alert_found = False
-    
-    while not get_wave() <= 0:
+    # while not alert_visible() and alert_found == False:
+    while not get_wave() <= 0 and not alert_visible():
         gh.click(218, 817)
         time.sleep(0.2)
         gh.click(1249, 426)
@@ -253,12 +253,11 @@ def restart_match_fast():
         time.sleep(0.2)
         gh.click(816, 541)
         time.sleep(0.5)
-        
+        # while pixel_matches_at(881,529,(119,119,119),tol=20,sample_half=0):
         while alert_visible():
-            gh.click(1325, 226)
+            gh.click(823,529)
             time.sleep(0.1)
         time.sleep(0.4)
-        alert_found = True
     print("Restarted Successfully!")
 
 
@@ -282,14 +281,6 @@ def spring_event():
             gh.click(AUTO_PLAY)
             time.sleep(0.4)
         gh.click(CONFIRM_WALL)
-        
-        while get_wave() <=0:
-            time.sleep(1)
-        
-        print("Waiting for countdown")
-        while not pixel_matches_at(*COUNTDOWN,(255,255,255),tol=20,sample_half=0) and get_wave() >= 1:
-            time.sleep(0.1)
-        time.sleep(3)
         
         while get_wave() <= 3:
             time.sleep(6)
@@ -327,6 +318,5 @@ def spring_event():
                 gh.click(CLOSE)
         runs += 1
         maybe_send_run_webhook(session_start=session_start, wins=runs, losses=0)
-
 
 spring_event()
