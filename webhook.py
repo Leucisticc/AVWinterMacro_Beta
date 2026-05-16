@@ -69,11 +69,13 @@ def _build_embed_fields(
     run_time: str,
     task_name: str,
     num_runs: int | None = None,
+    num_runs_label: str = "Total Runs",
     win: int | None = None,
     lose: int | None = None,
     rewards: int | None = None,
     reward_name: str = "Rewards",
     average_rewards: int | None = None,
+    extra_fields: list[dict[str, Any]] | None = None,
 ):
     fields = [
         {"name": "🕒 Run Time", "value": str(run_time), "inline": True},
@@ -116,7 +118,10 @@ def _build_embed_fields(
             )
     else:
         total = _to_int(num_runs, 0)
-        fields.append({"name": "🔁 Total Runs", "value": str(total), "inline": True})
+        fields.append({"name": f"🔁 {num_runs_label}", "value": str(total), "inline": True})
+
+    if extra_fields:
+        fields.extend(extra_fields)
 
     fields.append({"name": "⚙️ Current Task", "value": str(task_name)})
     return fields
@@ -127,6 +132,7 @@ def send_webhook(
     num_runs: int | None = None,
     task_name: str = "Winter Event",
     img=None,
+    num_runs_label: str = "Total Runs",
     win: int | None = None,
     lose: int | None = None,
     rewards: int | None = None,
@@ -134,6 +140,7 @@ def send_webhook(
     average_rewards: int | None = None,
     enabled: bool = True,
     alert_text: str | None = None,
+    extra_fields: list[dict[str, Any]] | None = None,
 ):
     """
     Backward compatible with the current project call:
@@ -162,11 +169,13 @@ def send_webhook(
                     run_time=run_time,
                     task_name=task_name,
                     num_runs=num_runs,
+                    num_runs_label=num_runs_label,
                     win=win,
                     lose=lose,
                     rewards=rewards,
                     reward_name=reward_name,
                     average_rewards=average_rewards,
+                    extra_fields=extra_fields,
                 ),
                 "image": {"url": "attachment://screenshot.png"} if img is not None else None,
                 "thumbnail": {

@@ -15,7 +15,8 @@ MAIN_FOLDER = Path(__file__).resolve().parents[1]
 
 # Change these for your repo/release setup.
 OWNER = "Leucisticc"
-REPO = "AVWinterMacro_Beta"
+REPO = "Kouhaii_AV"
+LEGACY_REPOS = ["AVWinterMacro_Beta"]
 VERSION_FILE = "version.json"  # optional; falls back to Winter_Event.py VERSION_N
 
 # Only these paths are replaced during update.
@@ -95,21 +96,34 @@ def _read_local_version(project_root: Path) -> str:
     return "0.0.0"
 
 
-def _github_latest_release() -> dict:
-    url = f"https://api.github.com/repos/{OWNER}/{REPO}/releases/latest"
+def _github_latest_release_for(repo: str) -> dict:
+    url = f"https://api.github.com/repos/{OWNER}/{repo}/releases/latest"
     req = Request(
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "WinterFileChecker",
+            "User-Agent": "KouhaiiAVFileChecker",
         },
     )
     with urlopen(req, timeout=30, context=_ssl_context()) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _github_latest_release() -> dict:
+    last_error: Exception | None = None
+    for repo in [REPO, *LEGACY_REPOS]:
+        try:
+            return _github_latest_release_for(repo)
+        except Exception as exc:
+            last_error = exc
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("No GitHub repositories configured for update checks.")
+
+
 def _download(url: str) -> bytes:
-    req = Request(url, headers={"User-Agent": "WinterFileChecker"})
+    req = Request(url, headers={"User-Agent": "KouhaiiAVFileChecker"})
     with urlopen(req, timeout=90, context=_ssl_context()) as response:
         return response.read()
 

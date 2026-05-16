@@ -1,4 +1,4 @@
-# AVWinterMacroMac
+# Kouhaii_AV
 Beta Version of a Mac Anime Vanguards Macro
 
 ## License
